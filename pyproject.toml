@@ -1,0 +1,21 @@
+[project]
+name = "real_estate_ai_agent"
+version = "1.0.0"
+description = "PropertyBot — AI real estate assistant powered by DeepInfra + RealEstateAPI"
+authors = [{ name = "TekGlide" }]
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "litellm>=1.40.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-dotenv>=1.0.0",
+    "redis>=5.2.0",
+    "httpx>=0.27.0",
+    "playwright>=1.44.0",
+    "swiftshadow>=2.4.0",
+]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
