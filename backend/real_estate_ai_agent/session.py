@@ -62,10 +62,27 @@ def save_history(session_id: str, history) -> None:
 
 
 def get_search_state(session_id):
+    r = _get_redis()
+    if r:
+        try:
+            raw = r.get(f"state:{session_id}")
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
     return _local_state.get(session_id, DEFAULT_SEARCH_STATE.copy())
+
 
 def save_search_state(session_id, state):
     _local_state[session_id] = state
+    r = _get_redis()
+    if r:
+        try:
+            r.setex(f"state:{session_id}", SESSION_TTL, json.dumps(state))
+        except Exception:
+            pass
 
 
 def clear_history(session_id: str) -> None:

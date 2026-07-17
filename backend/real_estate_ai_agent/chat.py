@@ -14,7 +14,7 @@ import re
 
 import litellm
 
-from .config import DEEPINFRA_API_KEY, DEEPINFRA_MODEL
+from .config import DEEPINFRA_API_KEY, DEEPINFRA_MODEL, MAX_HISTORY
 from .prompts import SYSTEM_PROMPT
 from .tools import TOOL_DEFS, run_tool
 from .search_state import merge_search_state, update_search_state
@@ -23,7 +23,6 @@ from .session import get_search_state, save_search_state
 log = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
-MAX_HISTORY = 10
 
 LISTING_TOOLS = {"search_listings"}
 
@@ -70,8 +69,30 @@ def _recent_user_mentioned(history: list[dict], pattern: re.Pattern) -> bool:  #
     return bool(pattern.search(_recent_user_content(history)))
 
 
-def _build_messages(history: list[dict]) -> list[dict]:
-    return [{"role": "system", "content": SYSTEM_PROMPT}] + history[-MAX_HISTORY:]
+def _build_messages(history: list[dict], session_id: str = None) -> list[dict]:
+    """Build messages for LLM with smart trimming.
+
+    Strategy:
+    1. Always include system prompt + current search state summary
+    2. If history fits within MAX_HISTORY, return everything
+    3. Otherwise, keep only last MAX_HISTORY messages
+       (search state handles parameter persistence, no need for old messages)
+    """
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Inject current search state so LLM knows user's latest preferences
+    if session_id:
+        from .session import get_search_state
+        state = get_search_state(session_id)
+        active_filters = {k: v for k, v in state.items() if v is not None}
+        if active_filters:
+            state_msg = f"[Current search filters: {active_filters}]"
+            messages.append({"role": "system", "content": state_msg})
+
+    if len(history) <= MAX_HISTORY:
+        return messages + history
+
+    return messages + history[-MAX_HISTORY:]
 
 
 def _call_llm(messages: list[dict], use_tools: bool = True):
@@ -92,7 +113,7 @@ def _call_llm(messages: list[dict], use_tools: bool = True):
 def process_chat(session_id, history: list[dict]) -> str:
     """Run the chat pipeline. Mutates history in place. Returns the assistant reply."""
 
-    messages = _build_messages(history)
+    messages = _build_messages(history, session_id)
 
     for _round in range(MAX_TOOL_ROUNDS):
         try:
