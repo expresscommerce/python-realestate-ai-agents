@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
@@ -15,9 +16,19 @@ from .chat import process_chat
 from .config import CORS_ORIGINS
 from .session import clear_history, get_history, save_history
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
 
-app = FastAPI(title="PropertyBot", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s | %(name)s | %(message)s",
+    )
+    yield
+
+
+app = FastAPI(title="PropertyBot", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,7 +71,6 @@ async def create_session():
     save_history(sid, [])
     return SessionResponse(session_id=sid)
 
-
 @app.get("/api/session/{session_id}", response_model=SessionHistoryResponse)
 async def get_session_history(session_id: str):
     return SessionHistoryResponse(session_id=session_id, history=get_history(session_id))
@@ -79,7 +89,7 @@ async def chat_endpoint(req: ChatRequest):
     history.append({"role": "user", "content": req.message})
 
     try:
-        reply = process_chat(history)
+        reply = process_chat(sid, history)
     except Exception as exc:
         logging.getLogger(__name__).error("Chat pipeline error: %s", exc)
         reply = "I ran into an unexpected issue. Please try again."

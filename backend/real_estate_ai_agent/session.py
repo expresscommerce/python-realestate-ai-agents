@@ -8,10 +8,11 @@ import json
 import logging
 
 from .config import REDIS_URL
-
+from .search_state import DEFAULT_SEARCH_STATE
 log = logging.getLogger(__name__)
 
 _local: dict[str, list[dict]] = {}
+_local_state = {} 
 _redis = None
 
 SESSION_TTL = 60 * 60 * 24  # 24 hours
@@ -49,7 +50,8 @@ def get_history(session_id: str) -> list[dict]:
     return list(_local.get(session_id, []))
 
 
-def save_history(session_id: str, history: list[dict]) -> None:
+def save_history(session_id: str, history) -> None:
+
     _local[session_id] = history
     r = _get_redis()
     if r:
@@ -57,6 +59,13 @@ def save_history(session_id: str, history: list[dict]) -> None:
             r.setex(f"sess:{session_id}", SESSION_TTL, json.dumps(history))
         except Exception:
             pass
+
+
+def get_search_state(session_id):
+    return _local_state.get(session_id, DEFAULT_SEARCH_STATE.copy())
+
+def save_search_state(session_id, state):
+    _local_state[session_id] = state
 
 
 def clear_history(session_id: str) -> None:

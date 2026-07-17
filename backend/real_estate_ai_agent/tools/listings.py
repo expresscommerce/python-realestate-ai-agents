@@ -11,31 +11,6 @@ from .redfin import _redfin_search_url, _redfin_address_url
 
 log = logging.getLogger(__name__)
 
-_LISTING_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "listings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "address": {"type": ["string", "null"]},
-                    "city": {"type": ["string", "null"]},
-                    "state": {"type": ["string", "null"]},
-                    "zip": {"type": ["string", "null"]},
-                    "price": {"type": ["string", "number", "null"]},
-                    "bedrooms": {"type": ["string", "number", "null"]},
-                    "bathrooms": {"type": ["string", "number", "null"]},
-                    "sqft": {"type": ["string", "number", "null"]},
-                    "property_type": {"type": ["string", "null"]},
-                    "url": {"type": ["string", "null"]},
-                },
-            },
-        }
-    },
-    "required": ["listings"],
-}
-
 
 def _coerce_listings_from_api(listing_result: dict, search_url: str) -> list[dict]:
     """Prefer flat `results` from /v1/listings, then unwrap `listings` ListingItem objects."""
@@ -338,7 +313,7 @@ def search_listings(
             lines.extend(_format_listing_card(i, card, display_city, state))
         if showing_end < total:
             lines.append(f"There are {total - showing_end} more listings available. Say 'show more' to see the next batch.")
-        return "\n".join(lines).strip()
+        return "\n".join(lines)
 
     if skip > 0:
         return f"No more listings beyond the ones already shown for {display_city}, {state}."

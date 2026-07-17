@@ -17,11 +17,13 @@ import litellm
 from .config import DEEPINFRA_API_KEY, DEEPINFRA_MODEL
 from .prompts import SYSTEM_PROMPT
 from .tools import TOOL_DEFS, run_tool
+from .search_state import merge_search_state, update_search_state
+from .session import get_search_state, save_search_state
 
 log = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
-MAX_HISTORY = 40
+MAX_HISTORY = 10
 
 LISTING_TOOLS = {"search_listings"}
 
@@ -87,7 +89,7 @@ def _call_llm(messages: list[dict], use_tools: bool = True):
     return litellm.completion(**kwargs)
 
 
-def process_chat(history: list[dict]) -> str:
+def process_chat(session_id, history: list[dict]) -> str:
     """Run the chat pipeline. Mutates history in place. Returns the assistant reply."""
 
     messages = _build_messages(history)
@@ -140,9 +142,12 @@ def process_chat(history: list[dict]) -> str:
         # Execute each tool call
         listing_output = None
         listing_tool_name = None
+
         for tc in tool_calls:
+            search_state = get_search_state(session_id)
             try:
                 args = json.loads(tc.function.arguments)
+                args = merge_search_state(search_state, tc.function.name, args)
             except (json.JSONDecodeError, TypeError):
                 args = {}
 
@@ -171,6 +176,8 @@ def process_chat(history: list[dict]) -> str:
                     return block_msg
 
             result = run_tool(tc.function.name, args)
+            update_search_state(search_state, tc.function.name, args)
+            save_search_state(session_id, search_state)
             tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
             history.append(tool_msg)
             messages.append(tool_msg)
