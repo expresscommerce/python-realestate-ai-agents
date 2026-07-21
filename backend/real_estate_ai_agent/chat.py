@@ -482,7 +482,7 @@ def process_chat(session_id, history: list[dict]) -> str:
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "system", "content": listing_context},
-                *history,
+                {"role": "user", "content": user_msg},
             ]
 
             print(f"[chat] LLM comparison: options {n1} and {n2}")
