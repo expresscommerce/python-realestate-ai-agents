@@ -6,6 +6,9 @@ Max 5 tool-call rounds to prevent infinite loops.
 When search/detail tools return actual listings, the output is returned
 directly to prevent the LLM from summarizing away data. When no listings
 are found, the LLM handles the response naturally (suggestions, alternatives).
+
+Pagination, option references, and cross-session lookups are handled
+directly from listing_state without re-sending data to the LLM.
 """
 
 import json
@@ -15,10 +18,17 @@ import re
 import litellm
 
 from .config import DEEPINFRA_API_KEY, DEEPINFRA_MODEL, MAX_HISTORY
+from .listing_state import (
+    get_current_page,
+    get_listing_by_option,
+    get_listings_from_history,
+    paginate,
+    update_listing_state,
+)
 from .prompts import SYSTEM_PROMPT
-from .tools import TOOL_DEFS, run_tool
 from .search_state import merge_search_state, update_search_state
-from .session import get_search_state, save_search_state
+from .session import get_listing_state, get_search_state, save_listing_state, save_search_state
+from .tools import TOOL_DEFS, run_tool
 
 log = logging.getLogger(__name__)
 
@@ -40,19 +50,33 @@ _BUDGET_RE = re.compile(
 )
 _BEDROOMS_RE = re.compile(
     r"\d+[\s-]*(?:bed|bedroom|br|bd)|"
+    r"(?:bed|bedroom|br|bd)s?[\s-]*\d+|"
     r"\bstudio\b|"
-    r"\b(?:one|two|three|four|five)[\s-]*(?:bed|bedroom)",
+    r"\b(?:one|two|three|four|five)[\s-]*(?:bed|bedroom)|"
+    r"\b(?:bed|bedroom)s?[\s-]*(?:one|two|three|four|five)\b",
+    re.I,
+)
+
+_LOCATION_CHANGE_RE = re.compile(
+    r"\b(?:change|switch|move|go|update)\s+from\s+.+?\s+to\s+(.+?)(?:\s+instead)?\s*$",
+    re.I,
+)
+_LOCATION_CHANGE_TO_RE = re.compile(
+    r"\b(?:change|switch|move|go|update)\s+(?:to|in)\s+(?:the\s+)?(.+?)(?:\s+instead)?\s*$",
+    re.I,
+)
+_LOCATION_IN_RE = re.compile(
+    r"\b(?:search|find|look)\s+(?:in|at|for)\s+(.+?)(?:\s+instead)?\s*$",
+    re.I,
+)
+_MAKE_IT_RE = re.compile(
+    r"\b(?:make\s+it)\s+(.+?)(?:\s+instead)?\s*$",
     re.I,
 )
 
 
-def _recent_user_content(history: list[dict], *, max_user_msgs: int = 4) -> str:
-    """Return concatenated content of the last few user turns.
-
-    This allows multi-turn requirement gathering:
-    - turn 1: "under 800k"
-    - turn 2: "3 bedrooms"
-    """
+def _recent_user_content(history: list[dict], *, max_user_msgs: int = 6) -> str:
+    """Return concatenated content of the last few user turns."""
     chunks: list[str] = []
     for msg in reversed(history):
         if msg.get("role") != "user":
@@ -65,29 +89,36 @@ def _recent_user_content(history: list[dict], *, max_user_msgs: int = 4) -> str:
 
 
 def _recent_user_mentioned(history: list[dict], pattern: re.Pattern) -> bool:  # type: ignore[type-arg]
-    """Check pattern in recent user turns (not full stale history)."""
+    """Check pattern in recent user turns."""
     return bool(pattern.search(_recent_user_content(history)))
 
 
 def _build_messages(history: list[dict], session_id: str = None) -> list[dict]:
-    """Build messages for LLM with smart trimming.
-
-    Strategy:
-    1. Always include system prompt + current search state summary
-    2. If history fits within MAX_HISTORY, return everything
-    3. Otherwise, keep only last MAX_HISTORY messages
-       (search state handles parameter persistence, no need for old messages)
-    """
+    """Build messages for LLM with smart trimming."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    # Inject current search state so LLM knows user's latest preferences
     if session_id:
-        from .session import get_search_state
         state = get_search_state(session_id)
         active_filters = {k: v for k, v in state.items() if v is not None}
         if active_filters:
             state_msg = f"[Current search filters: {active_filters}]"
             messages.append({"role": "system", "content": state_msg})
+
+        listing_state = get_listing_state(session_id)
+        current = listing_state["current"]
+        if current["results"]:
+            params = current.get("search_params", {})
+            city = params.get("city", "")
+            total = current["total"]
+            offset = current["offset"]
+            limit = current["limit"]
+            showing_end = min(offset + limit, total)
+            listing_msg = (
+                f"[Active listing results: {total} total listings for "
+                f"{city}, showing {offset + 1}–{showing_end}. "
+                f"User can say 'show more', 'option N', or 'compare N and M'.]"
+            )
+            messages.append({"role": "system", "content": listing_msg})
 
     if len(history) <= MAX_HISTORY:
         return messages + history
@@ -96,6 +127,7 @@ def _build_messages(history: list[dict], session_id: str = None) -> list[dict]:
 
 
 def _call_llm(messages: list[dict], use_tools: bool = True):
+    print(f"[LLM] Calling LLM (use_tools={use_tools}, messages={len(messages)})")
     kwargs: dict = {
         "model": DEEPINFRA_MODEL,
         "messages": messages,
@@ -110,9 +142,420 @@ def _call_llm(messages: list[dict], use_tools: bool = True):
     return litellm.completion(**kwargs)
 
 
+# ── Listing view / pagination helpers ──
+
+_ORDINALS = {
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+    "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5,
+}
+
+_COMPARE_RE = re.compile(
+    r"\bcompar(?:e|ing)\s+(?:option\s*)?(\d+)\s*(?:and|&|with|vs\.?)\s*(?:option\s*)?(\d+)\b",
+    re.I,
+)
+
+_OPTION_RE = re.compile(r"\boption\s*(\d+)\b", re.I)
+
+_HISTORY_CITY_RE = re.compile(
+    r"\bfrom\s+(?:the\s+)?(.+?)\s+(?:search|session|results|listings)\b",
+    re.I,
+)
+
+_SIMPLE_PAGINATION = [
+    "show more", "more listings", "next page", "next batch",
+    "show next", "see more", "more results", "more options",
+    "show previous", "go back", "previous page", "previous results",
+]
+
+
+def _is_pagination_request(msg: str) -> str | None:
+    """Check if message is a simple pagination request. Returns 'next', 'prev', or None."""
+    msg_lower = msg.strip().lower()
+    for pattern in ["show more", "more listings", "next page", "next batch",
+                     "show next", "see more", "more results", "more options"]:
+        if pattern in msg_lower:
+            return "next"
+    for pattern in ["show previous", "go back", "previous page", "previous results"]:
+        if pattern in msg_lower:
+            return "prev"
+    return None
+
+
+def _get_option_number(msg: str) -> int | None:
+    """Extract option number from message."""
+    m = _OPTION_RE.search(msg)
+    if m:
+        return int(m.group(1))
+    msg_lower = msg.lower()
+    for word, num in _ORDINALS.items():
+        if word in msg_lower:
+            return num
+    return None
+
+
+def _normalize_location(value: str) -> str:
+    """Normalize location text for comparisons."""
+    text = (value or "").strip().lower()
+    text = text.replace("new york city", "new york")
+    text = text.replace("nyc", "new york")
+    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+    return text
+
+
+def _friendly_property_type(property_type: str | None) -> str:
+    """Convert stored property-type values into user-facing labels."""
+    mapping = {
+        "SFR": "house",
+        "CONDO": "apartment/condo",
+        "MFR": "multi-family",
+        "LAND": "land",
+        "MOBILE": "mobile home",
+        "OTHER": "property",
+    }
+    if not property_type:
+        return "home"
+    return mapping.get(property_type.upper(), property_type.lower())
+
+
+def _get_contextual_follow_up(user_msg: str, search_state: dict, session_id: str = None) -> str | None:
+    """Handle location-change follow-ups without sending them to the LLM."""
+    existing_city = (search_state.get("city") or "").strip()
+    if not existing_city:
+        return None
+
+    change_keywords = ("change", "switch", "move", "instead", "make it", "update", "different")
+    if not any(keyword in user_msg.lower() for keyword in change_keywords):
+        return None
+
+    target_city = None
+
+    location_match = _LOCATION_CHANGE_RE.search(user_msg)
+    if location_match:
+        target_city = location_match.group(1).strip()
+    else:
+        location_match = _LOCATION_CHANGE_TO_RE.search(user_msg)
+        if location_match:
+            target_city = location_match.group(1).strip()
+        else:
+            location_match = _LOCATION_IN_RE.search(user_msg)
+            if location_match:
+                target_city = location_match.group(1).strip()
+            else:
+                location_match = _MAKE_IT_RE.search(user_msg)
+                if location_match:
+                    target_city = location_match.group(1).strip()
+
+    if not target_city:
+        return None
+
+    if _normalize_location(target_city) == _normalize_location(existing_city):
+        return None
+
+    # Store pending city for confirmation
+    search_state["pending_city"] = target_city
+    if session_id:
+        save_search_state(session_id, search_state)
+
+    property_type = _friendly_property_type(search_state.get("property_type"))
+    return (
+        f"I can search the same {property_type} requirements in {target_city}. "
+        "Would you like me to search with the same budget and bedrooms? (yes/no)"
+    )
+
+
+def _get_comparison_numbers(msg: str) -> tuple[int, int] | None:
+    """Extract comparison option numbers."""
+    m = _COMPARE_RE.search(msg)
+    if m:
+        return (int(m.group(1)), int(m.group(2)))
+    return None
+
+
+def _format_single_listing(listing: dict, option_number: int = None) -> str:
+    """Format a single listing dict for user display."""
+    addr = listing.get("address") or "Address unavailable"
+    price = listing.get("price") or "Price not listed"
+    beds = listing.get("beds") or listing.get("bedrooms") or "\u2014"
+    baths = listing.get("baths") or listing.get("bathrooms") or "\u2014"
+    sqft = listing.get("sqft")
+    link = listing.get("url") or listing.get("listing_url")
+    city = listing.get("city") or ""
+    state = listing.get("state") or ""
+
+    lines = []
+    if option_number is not None:
+        lines.append(f"**Option {option_number}**")
+    lines.append(f"- **Address:** {addr}")
+    if city or state:
+        lines.append(f"- **Location:** {city}, {state}")
+    lines.append(f"- **Price:** {price}")
+    lines.append(f"- **Beds/Baths:** {beds} bed / {baths} bath")
+    if sqft:
+        lines.append(f"- **Sqft:** {sqft}")
+    if link:
+        lines.append(f"- **View listing:** {link}")
+    return "\n".join(lines)
+
+
+def _handle_listing_view(session_id: str, user_msg: str, listing_state: dict) -> str | None:
+    """Handle pagination, option references, comparisons from listing_state.
+
+    Returns formatted response string, or None if the message doesn't match
+    any listing-view pattern.
+    """
+    print(f"[listings.py] _handle_listing_view: results_count={len(listing_state['current']['results'])}, msg={user_msg!r}")
+    if not listing_state["current"]["results"]:
+        return None
+
+    # ── Cross-session / history reference ──
+    hist_match = _HISTORY_CITY_RE.search(user_msg)
+    if hist_match:
+        city = hist_match.group(1).strip()
+        entry = get_listings_from_history(listing_state, city)
+        if entry and entry["results"]:
+            option_num = _get_option_number(user_msg)
+            if option_num and 1 <= option_num <= len(entry["results"]):
+                listing = entry["results"][option_num - 1]
+                return (
+                    f"From your **{city}** search:\n\n"
+                    + _format_single_listing(listing, option_num)
+                )
+            lines = [f"Here are your **{city}** listings from a previous search:\n"]
+            for i, l in enumerate(entry["results"][:10], 1):
+                lines.append(_format_single_listing(l, i))
+                lines.append("")
+            return "\n".join(lines)
+
+    # ── Comparison (handled by LLM in process_chat) ──
+    if _get_comparison_numbers(user_msg):
+        return None
+
+    # ── Specific option reference ──
+    option_num = _get_option_number(user_msg)
+    if option_num is not None:
+        listing = get_listing_by_option(listing_state, option_num)
+        if listing:
+            return _format_single_listing(listing, option_num)
+
+    # ── Pagination (text-based "show more" disabled; use accordion button in UI) ──
+    direction = _is_pagination_request(user_msg)
+    if direction:
+        return "That's all the listings I found."
+
+    return None
+
+
+# ── Main pipeline ──
+
+def parse_price(price):
+    if not price:
+        return None
+    return int(re.sub(r"[^\d]", "", str(price)))
+
+def parse_sqft(sqft):
+    if not sqft:
+        return None
+    return int(re.sub(r"[^\d]", "", str(sqft)))
+
+
 def process_chat(session_id, history: list[dict]) -> str:
     """Run the chat pipeline. Mutates history in place. Returns the assistant reply."""
 
+    user_msg = history[-1]["content"] if history else ""
+    print(f"[chat] process_chat: session={session_id}, msg={user_msg!r}")
+
+    # ── Check for listing view / pagination requests first ──
+    listing_state = get_listing_state(session_id)
+    print(f"[chat] listing_state: results={len(listing_state['current']['results'])}, total={listing_state['current']['total']}, offset={listing_state['current']['offset']}")
+    view_response = _handle_listing_view(session_id, user_msg, listing_state)
+    if view_response is not None:
+        print(f"[chat] view_response handled directly, no LLM call")
+        history.append({"role": "assistant", "content": view_response})
+        return view_response
+
+    # ── LLM-based comparison ──
+    comp = _get_comparison_numbers(user_msg)
+    if comp:
+        n1, n2 = comp
+        l1 = get_listing_by_option(listing_state, n1)
+        l2 = get_listing_by_option(listing_state, n2)
+
+        print("Option", n1, "found:", l1 is not None)
+        print("Option", n2, "found:", l2 is not None)
+
+        print("Current total:", len(listing_state["current"]["results"]))
+
+
+        if l1 and l2:
+            price1 = l1.get("price")
+            price2 = l2.get("price")
+
+            beds1 = l1.get("beds")
+            beds2 = l2.get("beds")
+
+            baths1 = l1.get("baths")
+            baths2 = l2.get("baths")
+
+            sqft1 = l1.get("sqft")
+            sqft2 = l2.get("sqft")
+
+            city1 = l1.get("city")
+            city2 = l2.get("city")
+
+            state1 = l1.get("state")
+            state2 = l2.get("state")
+
+            address1 = l1.get("address")
+            address2 = l2.get("address")
+
+            comparison = f""" 
+            Comparison
+
+            Price
+            • Option {n1}: {price1}
+            • Option {n2}: {price2}
+
+            Bedrooms/Bathrooms
+            • Option {n1}: {beds1} Bed • {baths1} Bath
+            • Option {n2}: {beds2} Bed • {baths2} Bath
+
+            Square Feet
+            • Option {n1}: {sqft1}
+            • Option {n2}: {sqft2}
+
+            City
+            • Option {n1}: {city1}
+            • Option {n2}: {city2}
+
+            State
+            • Option {n1}: {state1}
+            • Option {n2}: {state2}
+
+            Address
+            • Option {n1}: {address1}
+            • Option {n2}: {address2}
+            """
+
+            price_num1 = parse_price(price1)
+            price_num2 = parse_price(price2)
+
+            price_diff = abs(price_num2 - price_num1)
+
+            sqft_num1 = parse_sqft(sqft1)
+            sqft_num2 = parse_sqft(sqft2)
+
+            sqft_diff = abs(sqft_num2 - sqft_num1)
+
+            listing_context = f"""
+            You are a real estate assistant.
+
+            Facts:
+
+            Option {n1}
+            Price: {price1}
+            Beds: {beds1}
+            Baths: {baths1}
+            Sqft: {sqft1}
+
+            Option {n2}
+            Price: {price2}
+            Beds: {beds2}
+            Baths: {baths2}
+            Sqft: {sqft2}
+
+            Differences:
+            - Price difference: ${price_diff:,}
+            - Square feet difference: {sqft_diff} sqft
+
+            Return ONLY ONE paragraph beginning with:
+
+            Bottom line:
+
+            Do NOT repeat the facts.
+            Do NOT rewrite the listings.
+            Do NOT compare each field again.
+            Do NOT use headings.
+            Do NOT ask questions.
+            Maximum 3 sentences.
+            """
+
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": listing_context},
+                *history,
+            ]
+
+            print(f"[chat] LLM comparison: options {n1} and {n2}")
+            try:
+                resp = _call_llm(messages, use_tools=False)
+                text = (resp.choices[0].message.content or "").strip()
+            except Exception as exc:
+                log.error("LLM comparison call failed: %s", exc)
+                text = ""
+            if not text:
+                text = (
+                    "Here's a quick comparison:\n\n"
+                    + _format_single_listing(l1, n1)
+                    + "\n\n"
+                    + _format_single_listing(l2, n2)
+                )
+            final_response = comparison + "\n\n" + text
+            history.append({"role": "assistant", "content": final_response})
+            return final_response
+
+    # ── Contextual follow-up handling (no LLM call) ──
+    search_state = get_search_state(session_id)
+    follow_up_reply = _get_contextual_follow_up(user_msg, search_state, session_id)
+    if follow_up_reply is not None:
+        print("[chat] contextual follow-up handled directly, no LLM call")
+        history.append({"role": "assistant", "content": follow_up_reply})
+        return follow_up_reply
+
+    # ── Handle pending city confirmation ──
+    pending_city = search_state.get("pending_city")
+    if pending_city:
+        affirmative = ("yes", "sure", "yeah", "yep", "same", "do it", "go ahead")
+        if any(word in user_msg.lower() for word in affirmative):
+            args = {
+                "city": pending_city,
+                "state": search_state.get("state", ""),
+                "listing_type": search_state.get("listing_type", "sale"),
+                "property_type": search_state.get("property_type", ""),
+                "bedrooms": search_state.get("bedrooms", 0),
+                "price_max": search_state.get("price_max", 0),
+                "price_min": search_state.get("price_min", 0),
+            }
+            del search_state["pending_city"]
+            save_search_state(session_id, search_state)
+
+            result = run_tool("search_listings", args)
+            update_search_state(search_state, "search_listings", args)
+            save_search_state(session_id, search_state)
+
+            if isinstance(result, dict):
+                listing_state = get_listing_state(session_id)
+                update_listing_state(
+                    listing_state,
+                    result.get("listings", []),
+                    result.get("search_params", {}),
+                    offset=args.get("offset", 0),
+                    limit=args.get("limit", 5),
+                )
+                save_listing_state(session_id, listing_state)
+                result_str = result.get("message", "")
+            else:
+                result_str = result if isinstance(result, str) else str(result)
+
+            if isinstance(result, dict) and "Option " in result_str:
+                tail = "\n\nWould you like more details on any of these, or should I adjust the search?"
+                reply = result_str + tail
+            else:
+                reply = result_str
+
+            history.append({"role": "assistant", "content": reply})
+            return reply
+
+    # ── Normal LLM flow ──
     messages = _build_messages(history, session_id)
 
     for _round in range(MAX_TOOL_ROUNDS):
@@ -180,6 +623,7 @@ def process_chat(session_id, history: list[dict]) -> str:
                     missing.append("budget (maximum price)")
                 if not _recent_user_mentioned(history, _BEDROOMS_RE):
                     missing.append("number of bedrooms")
+                print(f"[chat] hard_guard: missing={missing}, search_state={search_state}")
                 if missing:
                     block_msg = (
                         "I still need a few details before I can search: "
@@ -199,19 +643,41 @@ def process_chat(session_id, history: list[dict]) -> str:
             result = run_tool(tc.function.name, args)
             update_search_state(search_state, tc.function.name, args)
             save_search_state(session_id, search_state)
-            tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
+
+            # ── Handle dict results from listing tools ──
+            if isinstance(result, dict) and tc.function.name in LISTING_TOOLS:
+                listing_state = get_listing_state(session_id)
+                update_listing_state(
+                    listing_state,
+                    result.get("listings", []),
+                    result.get("search_params", {}),
+                    offset=args.get("offset", 0),
+                    limit=args.get("limit", 5),
+                )
+                save_listing_state(session_id, listing_state)
+                result_str = result.get("message", "")
+
+                listing_output = result_str
+                listing_tool_name = tc.function.name
+
+                tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result_str}
+                history.append(tool_msg)
+                messages.append(tool_msg)
+                continue
+
+            result_str = result if isinstance(result, str) else str(result)
+
+            tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result_str}
             history.append(tool_msg)
             messages.append(tool_msg)
 
             if tc.function.name in LISTING_TOOLS:
-                listing_output = result
+                listing_output = result_str
                 listing_tool_name = tc.function.name
 
         # When listing tools returned ACTUAL results, return them directly
-        # to prevent the LLM from summarizing away the data.
         if listing_output is not None and "Option " in listing_output:
-            tail = "\n\nWould you like more details on any of these, or should I adjust the search?"
-            reply = listing_output + tail
+            reply = listing_output
             history.append({"role": "assistant", "content": reply})
             return reply
 
@@ -223,9 +689,6 @@ def process_chat(session_id, history: list[dict]) -> str:
             reply = listing_output
             history.append({"role": "assistant", "content": reply})
             return reply
-
-        # Tool was blocked or non-listing tool — let LLM see the result
-        # and generate a natural follow-up (asking for missing info).
 
     text = (msg.content or "").strip() if msg else ""  # type: ignore[possibly-undefined]
     if not text:
