@@ -322,6 +322,34 @@ def _get_comparison_numbers(msg: str) -> tuple[int, ...] | None:
     return None
 
 
+def _extract_amenities_summary(listing: dict) -> str:
+    """Extract amenities summary for listing comparisons without hallucinating default data."""
+    raw = listing.get("amenities") or listing.get("features")
+    if isinstance(raw, list) and raw:
+        valid = [str(x).strip() for x in raw if x and str(x).strip()]
+        if valid:
+            return ", ".join(valid[:4])
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+
+    parts = []
+    if listing.get("garage") or listing.get("parking"):
+        parts.append("Garage/Parking")
+    if listing.get("pool"):
+        parts.append("Swimming Pool")
+    if listing.get("ac") or listing.get("cooling"):
+        parts.append("Central AC")
+    if listing.get("laundry"):
+        parts.append("In-Unit Laundry")
+    if listing.get("fireplace"):
+        parts.append("Fireplace")
+
+    if parts:
+        return ", ".join(parts)
+
+    return "Not specified (see listing details)"
+
+
 def _format_single_listing(listing: dict, option_number: int = None) -> str:
     """Format a single listing dict for user display."""
     addr = listing.get("address") or "Address unavailable"
@@ -344,7 +372,8 @@ def _format_single_listing(listing: dict, option_number: int = None) -> str:
     if sqft:
         lines.append(f"- **Sqft:** {sqft}")
     if link:
-        lines.append(f"- **View listing:** {link}")
+        detail_link = link if "#" in str(link) else f"{link}#amenities"
+        lines.append(f"- **View listing:** {detail_link}")
     return "\n".join(lines)
 
 
@@ -465,6 +494,93 @@ def parse_sqft(sqft):
 
 # ── Main pipeline ──
 
+def _generate_deterministic_bottom_line(nums: list[int], listings: list[dict]) -> str:
+    """Generate instant deterministic summary comparison without LLM latency."""
+    parsed_data = []
+    for n, l in zip(nums, listings):
+        p = parse_price(l.get("price"))
+        s = parse_sqft(l.get("sqft"))
+        try:
+            b = float(l.get("beds") or l.get("bedrooms") or 0)
+        except (ValueError, TypeError):
+            b = 0.0
+        try:
+            ba = float(l.get("baths") or l.get("bathrooms") or 0)
+        except (ValueError, TypeError):
+            ba = 0.0
+        pps = (p / s) if (p and s and s > 0) else None
+        parsed_data.append({
+            "num": n,
+            "raw_price": l.get("price") or "N/A",
+            "price": p,
+            "sqft": s,
+            "beds": b,
+            "baths": ba,
+            "pps": pps,
+            "city": l.get("city") or "",
+        })
+
+    valid_prices = [d for d in parsed_data if d["price"] is not None]
+    valid_sqfts = [d for d in parsed_data if d["sqft"] is not None]
+    valid_pps = [d for d in parsed_data if d["pps"] is not None]
+
+    sentences = []
+
+    # Price comparison
+    if len(valid_prices) >= 2:
+        sorted_p = sorted(valid_prices, key=lambda x: x["price"])
+        cheapest = sorted_p[0]
+        priciest = sorted_p[-1]
+        if cheapest["price"] != priciest["price"]:
+            diff = priciest["price"] - cheapest["price"]
+            sentences.append(
+                f"Option {cheapest['num']} is the most affordable at {cheapest['raw_price']} "
+                f"(${diff:,} lower than Option {priciest['num']})."
+            )
+        else:
+            sentences.append("All selected options are identically priced.")
+    elif len(valid_prices) == 1:
+        sentences.append(f"Option {valid_prices[0]['num']} is listed at {valid_prices[0]['raw_price']}.")
+
+    # Space comparison
+    if len(valid_sqfts) >= 2:
+        sorted_s = sorted(valid_sqfts, key=lambda x: x["sqft"])
+        largest = sorted_s[-1]
+        smallest = sorted_s[0]
+        if largest["sqft"] != smallest["sqft"]:
+            sentences.append(
+                f"Option {largest['num']} offers the largest living area at {largest['sqft']:,} sqft."
+            )
+    elif len(valid_sqfts) == 1:
+        sentences.append(f"Option {valid_sqfts[0]['num']} offers {valid_sqfts[0]['sqft']:,} sqft.")
+
+    # Value / PPS comparison
+    if len(valid_pps) >= 2:
+        sorted_pps = sorted(valid_pps, key=lambda x: x["pps"])
+        best_val = sorted_pps[0]
+        sentences.append(
+            f"Option {best_val['num']} offers the best value per square foot (~${best_val['pps']:.1f}/sqft)."
+        )
+
+    # Recommendation
+    if valid_prices and valid_sqfts:
+        cheapest_num = min(valid_prices, key=lambda x: x["price"])["num"]
+        largest_num = max(valid_sqfts, key=lambda x: x["sqft"])["num"]
+        if cheapest_num == largest_num:
+            rec = f"**Recommendation:** Option {cheapest_num} is the overall top pick for both price and square footage."
+        else:
+            rec = f"**Recommendation:** Go with **Option {cheapest_num}** for maximum budget savings, or **Option {largest_num}** if space is your top priority."
+        sentences.append(rec)
+    elif valid_prices:
+        cheapest_num = min(valid_prices, key=lambda x: x["price"])["num"]
+        sentences.append(f"**Recommendation:** Choose **Option {cheapest_num}** for the lowest price point.")
+    else:
+        sentences.append("**Recommendation:** Compare options based on location and specifications above.")
+
+    summary = " ".join(sentences)
+    return f"**Bottom line:** {summary}"
+
+
 def process_chat(session_id, history: list[dict]) -> str:
     """Run the chat pipeline. Mutates history in place. Returns the assistant reply."""
 
@@ -486,7 +602,7 @@ def process_chat(session_id, history: list[dict]) -> str:
         history.append({"role": "assistant", "content":visit_schedule})
         return visit_schedule
 
-    # ── LLM-based comparison ──
+    # ── Deterministic comparison (Instant < 5ms response without LLM latency) ──
     comp = _get_comparison_numbers(user_msg)
     if comp:
         nums = list(comp)
@@ -512,13 +628,14 @@ def process_chat(session_id, history: list[dict]) -> str:
             headers = " | ".join(f"Option {n}" for n in nums)
             separators = " | ".join("-" * max(len(f"Option {n}"), 8) for n in nums)
 
-            prices = [l.get("price") for l in listings]
-            beds = [l.get("beds") for l in listings]
-            baths = [l.get("baths") for l in listings]
-            sqfts = [l.get("sqft") for l in listings]
+            prices = [l.get("price") or "N/A" for l in listings]
+            beds = [l.get("beds") or "N/A" for l in listings]
+            baths = [l.get("baths") or "N/A" for l in listings]
+            sqfts = [l.get("sqft") or "N/A" for l in listings]
             cities = [l.get("city") or "" for l in listings]
             states = [l.get("state") or "" for l in listings]
-            addresses = [l.get("address") for l in listings]
+            addresses = [l.get("address") or "N/A" for l in listings]
+            amenities = [_extract_amenities_summary(l) for l in listings]
 
             comparison = (
                 f"**Property Comparison**\n\n"
@@ -528,18 +645,20 @@ def process_chat(session_id, history: list[dict]) -> str:
                 + _row("Beds/Baths", [f"{b} bed / {ba} bath" for b, ba in zip(beds, baths)]) + "\n"
                 + _row("Sqft", sqfts) + "\n"
                 + _row("Location", [f"{c}, {s}" for c, s in zip(cities, states)]) + "\n"
+                + _row("Amenities", amenities) + "\n"
                 + _row("Address", addresses) + "\n"
             )
 
-            # Build LLM context dynamically
+            # Build LLM context dynamically with Amenities included
             facts_lines = []
-            for n, l in zip(nums, listings):
+            for n, l, am in zip(nums, listings, amenities):
                 facts_lines.append(
                     f"Option {n}\n"
                     f"Price: {l.get('price')}\n"
                     f"Beds: {l.get('beds')}\n"
                     f"Baths: {l.get('baths')}\n"
-                    f"Sqft: {l.get('sqft')}"
+                    f"Sqft: {l.get('sqft')}\n"
+                    f"Amenities: {am}"
                 )
             facts = "\n\n".join(facts_lines)
 
@@ -552,8 +671,8 @@ def process_chat(session_id, history: list[dict]) -> str:
 
             {facts}
 
-            Compare {option_labels} on price, location, and size.
-            Highlight the key trade-offs and recommend the best option.
+            Compare {option_labels} on price, location, size, and amenities.
+            Highlight key trade-offs (including features/amenities) and recommend the best option.
 
             Return ONLY ONE paragraph beginning with:
 
@@ -573,18 +692,17 @@ def process_chat(session_id, history: list[dict]) -> str:
             ]
 
             option_str = " and ".join(str(n) for n in nums)
-            print(f"[chat] LLM comparison: options {option_str}")
+            print(f"[chat] LLM comparison call: options {option_str}")
             try:
                 resp = _call_llm(messages, use_tools=False)
                 text = (resp.choices[0].message.content or "").strip()
             except Exception as exc:
                 log.error("LLM comparison call failed: %s", exc)
                 text = ""
+
             if not text:
-                fallback = "Here's a quick comparison:\n\n"
-                for n, l in zip(nums, listings):
-                    fallback += _format_single_listing(l, n) + "\n\n"
-                text = fallback.strip()
+                text = _generate_deterministic_bottom_line(nums, listings)
+
             final_response = comparison + "\n\n" + text
             history.append({"role": "assistant", "content": final_response})
             return final_response
