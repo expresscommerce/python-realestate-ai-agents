@@ -150,8 +150,12 @@ _ORDINALS = {
 }
 
 _COMPARE_RE = re.compile(
-    r"\bcompar(?:e|ing)\s+(?:option\s*)?(\d+)\s*(?:and|&|with|vs\.?)\s*(?:option\s*)?(\d+)\b",
+    r"\bcompar(?:e|ing)\s+(.+)",
     re.I,
+)
+_COMPARE_NUM_RE = re.compile(r"(?:option\s*)?(\d+)")
+_SCHEDULE_INTENT_RE = re.compile(
+    r"\b(?:schedule|visit|book|appointment|tour)\b", re.I
 )
 
 _OPTION_RE = re.compile(r"\boption\s*(\d+)\b", re.I)
@@ -263,11 +267,14 @@ def _get_contextual_follow_up(user_msg: str, search_state: dict, session_id: str
     )
 
 
-def _get_comparison_numbers(msg: str) -> tuple[int, int] | None:
-    """Extract comparison option numbers."""
+def _get_comparison_numbers(msg: str) -> tuple[int, ...] | None:
+    """Extract comparison option numbers. Supports 2 or more options."""
     m = _COMPARE_RE.search(msg)
-    if m:
-        return (int(m.group(1)), int(m.group(2)))
+    if not m:
+        return None
+    nums = [int(n) for n in _COMPARE_NUM_RE.findall(m.group(1))]
+    if len(nums) >= 2:
+        return tuple(nums)
     return None
 
 
@@ -331,6 +338,9 @@ def _handle_listing_view(session_id: str, user_msg: str, listing_state: dict) ->
         return None
 
     # ── Specific option reference ──
+    if _SCHEDULE_INTENT_RE.search(user_msg):
+        return None
+
     option_num = _get_option_number(user_msg)
     if option_num is not None:
         listing = get_listing_by_option(listing_state, option_num)
@@ -376,96 +386,71 @@ def process_chat(session_id, history: list[dict]) -> str:
     # ── LLM-based comparison ──
     comp = _get_comparison_numbers(user_msg)
     if comp:
-        n1, n2 = comp
-        l1 = get_listing_by_option(listing_state, n1)
-        l2 = get_listing_by_option(listing_state, n2)
+        nums = list(comp)
+        listings = []
+        for n in nums:
+            listings.append(get_listing_by_option(listing_state, n))
 
-        print("Option", n1, "found:", l1 is not None)
-        print("Option", n2, "found:", l2 is not None)
+        for i, n in enumerate(nums):
+            print("Option", n, "found:", listings[i] is not None)
 
         print("Current total:", len(listing_state["current"]["results"]))
 
+        if all(listings):
+            # Build dynamic column widths for the markdown table
+            col_widths = [len(f"Option {n}") for n in nums]
+            col_widths.append(len("Feature"))
+            header_width = max(col_widths)
 
-        if l1 and l2:
-            price1 = l1.get("price")
-            price2 = l2.get("price")
+            def _row(label, values):
+                cells = " | ".join(str(v) for v in values)
+                return f"| {label} | {cells} |"
 
-            beds1 = l1.get("beds")
-            beds2 = l2.get("beds")
+            headers = " | ".join(f"Option {n}" for n in nums)
+            separators = " | ".join("-" * max(len(f"Option {n}"), 8) for n in nums)
 
-            baths1 = l1.get("baths")
-            baths2 = l2.get("baths")
+            prices = [l.get("price") for l in listings]
+            beds = [l.get("beds") for l in listings]
+            baths = [l.get("baths") for l in listings]
+            sqfts = [l.get("sqft") for l in listings]
+            cities = [l.get("city") or "" for l in listings]
+            states = [l.get("state") or "" for l in listings]
+            addresses = [l.get("address") for l in listings]
 
-            sqft1 = l1.get("sqft")
-            sqft2 = l2.get("sqft")
+            comparison = (
+                f"**Property Comparison**\n\n"
+                f"| Feature | {headers} |\n"
+                f"|---------| {separators} |\n"
+                + _row("Price", prices) + "\n"
+                + _row("Beds/Baths", [f"{b} bed / {ba} bath" for b, ba in zip(beds, baths)]) + "\n"
+                + _row("Sqft", sqfts) + "\n"
+                + _row("Location", [f"{c}, {s}" for c, s in zip(cities, states)]) + "\n"
+                + _row("Address", addresses) + "\n"
+            )
 
-            city1 = l1.get("city")
-            city2 = l2.get("city")
+            # Build LLM context dynamically
+            facts_lines = []
+            for n, l in zip(nums, listings):
+                facts_lines.append(
+                    f"Option {n}\n"
+                    f"Price: {l.get('price')}\n"
+                    f"Beds: {l.get('beds')}\n"
+                    f"Baths: {l.get('baths')}\n"
+                    f"Sqft: {l.get('sqft')}"
+                )
+            facts = "\n\n".join(facts_lines)
 
-            state1 = l1.get("state")
-            state2 = l2.get("state")
-
-            address1 = l1.get("address")
-            address2 = l2.get("address")
-
-            comparison = f""" 
-            Comparison
-
-            Price
-            • Option {n1}: {price1}
-            • Option {n2}: {price2}
-
-            Bedrooms/Bathrooms
-            • Option {n1}: {beds1} Bed • {baths1} Bath
-            • Option {n2}: {beds2} Bed • {baths2} Bath
-
-            Square Feet
-            • Option {n1}: {sqft1}
-            • Option {n2}: {sqft2}
-
-            City
-            • Option {n1}: {city1}
-            • Option {n2}: {city2}
-
-            State
-            • Option {n1}: {state1}
-            • Option {n2}: {state2}
-
-            Address
-            • Option {n1}: {address1}
-            • Option {n2}: {address2}
-            """
-
-            price_num1 = parse_price(price1)
-            price_num2 = parse_price(price2)
-
-            price_diff = abs(price_num2 - price_num1)
-
-            sqft_num1 = parse_sqft(sqft1)
-            sqft_num2 = parse_sqft(sqft2)
-
-            sqft_diff = abs(sqft_num2 - sqft_num1)
+            option_labels = ", ".join(f"Option {n}" for n in nums[:-1]) + f", and Option {nums[-1]}"
 
             listing_context = f"""
             You are a real estate assistant.
 
             Facts:
 
-            Option {n1}
-            Price: {price1}
-            Beds: {beds1}
-            Baths: {baths1}
-            Sqft: {sqft1}
+            {facts}
 
-            Option {n2}
-            Price: {price2}
-            Beds: {beds2}
-            Baths: {baths2}
-            Sqft: {sqft2}
-
-            Differences:
-            - Price difference: ${price_diff:,}
-            - Square feet difference: {sqft_diff} sqft
+            Compare {option_labels} on price, location, and size.
+            Highlight the key trade-offs and recommend the best option.
 
             Return ONLY ONE paragraph beginning with:
 
@@ -473,10 +458,9 @@ def process_chat(session_id, history: list[dict]) -> str:
 
             Do NOT repeat the facts.
             Do NOT rewrite the listings.
-            Do NOT compare each field again.
             Do NOT use headings.
             Do NOT ask questions.
-            Maximum 3 sentences.
+            Maximum 4 sentences.
             """
 
             messages = [
@@ -485,7 +469,8 @@ def process_chat(session_id, history: list[dict]) -> str:
                 *history,
             ]
 
-            print(f"[chat] LLM comparison: options {n1} and {n2}")
+            option_str = " and ".join(str(n) for n in nums)
+            print(f"[chat] LLM comparison: options {option_str}")
             try:
                 resp = _call_llm(messages, use_tools=False)
                 text = (resp.choices[0].message.content or "").strip()
@@ -493,12 +478,10 @@ def process_chat(session_id, history: list[dict]) -> str:
                 log.error("LLM comparison call failed: %s", exc)
                 text = ""
             if not text:
-                text = (
-                    "Here's a quick comparison:\n\n"
-                    + _format_single_listing(l1, n1)
-                    + "\n\n"
-                    + _format_single_listing(l2, n2)
-                )
+                fallback = "Here's a quick comparison:\n\n"
+                for n, l in zip(nums, listings):
+                    fallback += _format_single_listing(l, n) + "\n\n"
+                text = fallback.strip()
             final_response = comparison + "\n\n" + text
             history.append({"role": "assistant", "content": final_response})
             return final_response

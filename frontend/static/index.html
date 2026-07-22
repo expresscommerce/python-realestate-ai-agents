@@ -27,6 +27,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    overflow-x: hidden;
   }
 
   header {
@@ -105,6 +106,29 @@
   .msg.user .bubble a { color: #bae6fd; }
   .bubble ul, .bubble ol { padding-left: 18px; margin: 6px 0; }
   .bubble li { margin-bottom: 3px; }
+
+  .bubble table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8px 0;
+    font-size: 13px;
+    display: block;
+    overflow-x: auto;
+  }
+  .bubble th, .bubble td {
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: left;
+  }
+  .bubble th { white-space: nowrap; }
+  .bubble td { word-break: break-word; }
+  .bubble th {
+    background: var(--primary-light);
+    font-weight: 600;
+  }
+  .bubble tr:nth-child(even) {
+    background: #f8fafc;
+  }
 
   .typing { display: flex; gap: 4px; padding: 13px 16px; }
   .typing span {
@@ -296,6 +320,46 @@
     .msg { max-width: 68%; }
   }
 
+  @media (max-width: 480px) {
+    #chat { padding: 16px 10px; }
+    .msg { max-width: 90%; }
+    .form-row { flex-direction: column; }
+    .quick-tip { right: 10px; bottom: 80px; width: calc(100% - 20px); }
+
+    .bubble table, .bubble thead, .bubble tbody,
+    .bubble th, .bubble tr, .bubble td { display: block; }
+    .bubble thead { display: none; }
+    .bubble tr {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 10px;
+      padding: 8px 0;
+      background: #f8fafc;
+    }
+    .bubble td {
+      padding: 6px 12px;
+      text-align: left;
+      position: relative;
+      padding-left: 45%;
+    }
+    .bubble td::before {
+      content: attr(data-label);
+      position: absolute;
+      left: 12px;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .bubble td:first-child {
+      padding-left: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      background: var(--primary-light);
+      border-radius: 8px 8px 0 0;
+    }
+  }
+
   /* ── Listing accordion ── */
   .listings-intro { margin-bottom: 8px; }
 
@@ -333,91 +397,6 @@
     border-color: var(--primary);
   }
 
-  .quick-tip{
-      position:fixed;
-      right:25px;
-      bottom:25px;
-
-      width:300px;
-
-      background:white;
-      border:1px solid var(--border);
-      border-radius:16px;
-
-      box-shadow:0 10px 30px rgba(0,0,0,.15);
-
-      z-index:1000;
-
-      overflow:hidden;
-
-      animation:fadeUp .25s ease;
-  }
-
-  .quick-tip.hidden{
-      display:none;
-  }
-
-  .quick-tip-header{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-
-      padding:12px 15px;
-
-      background:var(--primary);
-
-      color:white;
-      font-weight:600;
-  }
-
-  .quick-tip-header button{
-      background:none;
-      border:none;
-      color:white;
-      font-size:20px;
-      cursor:pointer;
-  }
-
-  .quick-tip-body{
-      padding:15px;
-  }
-
-  .tip-action{
-      width:100%;
-
-      border:1px solid var(--border);
-
-      border-radius:10px;
-
-      background:#f8fafc;
-
-      padding:12px;
-
-      margin-bottom:10px;
-
-      cursor:pointer;
-
-      text-align:left;
-
-      transition:.2s;
-  }
-
-  .tip-action:hover{
-      background:var(--primary-light);
-      border-color:var(--primary);
-  }
-
-  .tip-action:last-child{
-      margin-bottom:0;
-  }
-
-  .tip-action small{
-      display:block;
-      color:var(--muted);
-      margin-top:5px;
-      font-size:12px;
-  }
-
 </style>
 </head>
 <body>
@@ -449,27 +428,6 @@
     </svg>
   </button>
 </div>
-<div id="quick-tip" class="quick-tip hidden">
-  <div class="quick-tip-header">
-    <span>💡 Quick Actions</span>
-    <button onclick="hideQuickTip()">&times;</button>
-  </div>
-
-  <div class="quick-tip-body">
-    <button class="tip-action"
-            onclick="fillInput('Compare Option 3 and Option 8')">
-      🔍 Compare two properties
-      <small>Example: Compare Option 3 and Option 8</small>
-    </button>
-
-    <button class="tip-action"
-            onclick="fillInput('Schedule a visit for Option 5')">
-      📅 Schedule a visit
-      <small>Example: Schedule a visit for Option 5</small>
-    </button>
-  </div>
-</div>
-
 
 <script>
 const chat = document.getElementById('chat');
@@ -502,8 +460,34 @@ function formatText(raw) {
 
   t = t.replace(/((?:<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>');
 
+  // Parse markdown tables
+  t = t.replace(/((?:^\|.+\|[ ]*\n?)+)/gm, (block) => {
+    const rows = block.trim().split('\n').filter(r => r.trim());
+    if (rows.length < 2) return block;
+
+    const parseCells = (row) => row.split('|').slice(1, -1).map(c => c.trim());
+    const isSeparator = (r) => /^\|[\s\-:|]+\|$/.test(r.trim());
+
+    const headerCells = parseCells(rows[0]);
+    let html = '<table><thead><tr>';
+    headerCells.forEach(c => { html += '<th>' + c + '</th>'; });
+    html += '</tr></thead><tbody>';
+
+    for (let i = 1; i < rows.length; i++) {
+      if (isSeparator(rows[i])) continue;
+      const cells = parseCells(rows[i]);
+      const feature = cells[0] || '';
+      html += '<tr>';
+      cells.forEach((c, ci) => {
+        html += '<td' + (ci > 0 ? ' data-label="' + feature + '"' : '') + '>' + c + '</td>';
+      });
+      html += '</tr>';
+    }
+    return html + '</tbody></table>';
+  });
+
   t = t.split('\n\n').map(p => {
-    if (p.startsWith('<ul>') || p.startsWith('<li>')) return p;
+    if (p.startsWith('<ul>') || p.startsWith('<li>') || p.startsWith('<table>')) return p;
     return '<p>' + p + '</p>';
   }).join('');
 
@@ -586,7 +570,6 @@ function addMsg(role, text) {
   bubble.className = 'bubble';
 
   if (role === 'bot' && /\*\*Option\s*\d/.test(text)) {
-    showQuickTip();
     text = text.replace(/\n?\n?Say\s+['"]?show more['"]?.*$/i, '').trim();
     const parsed = parseListingResponse(text);
     if (parsed) {
@@ -626,7 +609,6 @@ async function send(text) {
   quickDiv.style.display = 'none';
 
   addMsg('user', text);
-  hideQuickTip();
   input.value = '';
   input.style.height = '44px';
   showTyping();
@@ -663,18 +645,6 @@ input.addEventListener('input', () => {
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 });
 
-function showQuickTip(){
-    document.getElementById("quick-tip").classList.remove("hidden");
-}
-
-function hideQuickTip(){
-    document.getElementById("quick-tip").classList.add("hidden");
-}
-
-function fillInput(text){
-    input.value = text;
-    input.focus();
-}
 
 // Safety net: force every link inside the chat to open in a new tab
 chat.addEventListener('click', (e) => {
