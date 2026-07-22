@@ -744,6 +744,47 @@
       margin-top: 5px;
       font-size: 12px;
     }
+
+    #tip-toggle {
+      display: none;
+      width: 44px;
+      height: 44px;
+      background: #fff;
+      color: var(--primary);
+      border: 2px solid var(--primary);
+      border-radius: 50%;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      transition: background .2s, transform .1s, box-shadow .2s;
+    }
+
+    #tip-toggle:active {
+      transform: scale(.93);
+    }
+
+    @keyframes tip-pulse {
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(15, 118, 110, .5);
+      }
+
+      50% {
+        box-shadow: 0 0 0 8px rgba(15, 118, 110, 0);
+      }
+    }
+
+    #tip-toggle.pulse {
+      animation: tip-pulse 1.2s ease-in-out 3;
+    }
+
+    #tip-toggle.visible {
+      display: flex;
+    }
   </style>
 </head>
 
@@ -769,6 +810,7 @@
   </div>
 
   <div id="input-area">
+    <button id="tip-toggle" title="Quick actions" onclick="toggleQuickTip()">?</button>
     <textarea id="msg-input" rows="1" placeholder="Type your message... (Enter to send)"></textarea>
     <button id="send-btn" title="Send">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -786,13 +828,12 @@
       <button onclick="hideQuickTip()">&times;</button>
     </div>
     <div class="quick-tip-body">
-      <button class="tip-action"
-              onclick="fillInput('Compare Option 3 and Option 8')">
-        Compare two properties
+      <button class="tip-action" onclick="fillInput('Compare Option 3 and Option 8')">
+        Compare properties
         <small>Example: Compare Option 3 and Option 8</small>
+        <small>Example: Compare Option 2, 6 and 10</small>
       </button>
-      <button class="tip-action"
-              onclick="fillInput('Schedule a visit for Option 5')">
+      <button class="tip-action" onclick="fillInput('Schedule a visit for Option 5')">
         Schedule a visit
         <small>Example: Schedule a visit for Option 5</small>
       </button>
@@ -803,6 +844,7 @@
     const chat = document.getElementById('chat');
     const input = document.getElementById('msg-input');
     const sendBtn = document.getElementById('send-btn');
+    const tipToggleBtn = document.getElementById('tip-toggle');
     const quickDiv = document.getElementById('quick-actions');
 
     let sessionId = localStorage.getItem('pb_sid') || null;
@@ -940,7 +982,11 @@
       bubble.className = 'bubble';
 
       if (role === 'bot' && /\*\*Option\s*\d/.test(text)) {
-        showQuickTip();
+        if (window.innerWidth <= 480) {
+          tipToggleBtn.classList.add('visible', 'pulse');
+        } else {
+          showQuickTip();
+        }
         text = text.replace(/\n?\n?Say\s+['"]?show more['"]?.*$/i, '').trim();
         const parsed = parseListingResponse(text);
         if (parsed) {
@@ -981,6 +1027,7 @@
 
       addMsg('user', text);
       hideQuickTip();
+      tipToggleBtn.classList.remove('visible');
       input.value = '';
       input.style.height = '44px';
       showTyping();
@@ -1023,6 +1070,16 @@
 
     function hideQuickTip() {
       document.getElementById("quick-tip").classList.add("hidden");
+      tipToggleBtn.classList.remove("pulse");
+    }
+
+    function toggleQuickTip() {
+      const tip = document.getElementById("quick-tip");
+      if (tip.classList.contains("hidden")) {
+        showQuickTip();
+      } else {
+        hideQuickTip();
+      }
     }
 
     function fillInput(text) {
