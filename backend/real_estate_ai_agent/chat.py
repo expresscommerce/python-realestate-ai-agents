@@ -171,17 +171,61 @@ _SIMPLE_PAGINATION = [
     "show previous", "go back", "previous page", "previous results",
 ]
 
+NEXT_PATTERNS = [
+    r"\bshow me more\b",
+    r"\bshow more\b",
+    r"\bgive me more\b",
+    r"\bi want more\b",
+    r"\bmore please\b",
+    r"\bnext\b",
+    r"\bnext\s+\d+\b",
+    r"\banother\b",
+    r"\banother\s+\d+\b",
+    r"\bcontinue\b",
+    r"\badditional\b",
+    r"\bmore (?:houses|homes|properties|listings|results|options)\b",
+]
+
+PREV_PATTERNS = [
+    r"\bprevious\b",
+    r"\bgo back\b",
+    r"\bback\b",
+    r"\bearlier\b",
+]
+
+VISIT_PATTERN = [
+    r"\bvisit\b",
+    r"\bschedule\b",
+    r"\bbook\b",
+]
+
 
 def _is_pagination_request(msg: str) -> str | None:
-    """Check if message is a simple pagination request. Returns 'next', 'prev', or None."""
-    msg_lower = msg.strip().lower()
-    for pattern in ["show more", "more listings", "next page", "next batch",
-                     "show next", "see more", "more results", "more options"]:
-        if pattern in msg_lower:
+    msg = msg.lower().strip()
+
+    # Next page
+    for pattern in NEXT_PATTERNS:
+        if re.search(pattern, msg):
             return "next"
-    for pattern in ["show previous", "go back", "previous page", "previous results"]:
-        if pattern in msg_lower:
+
+    # Previous page
+    for pattern in PREV_PATTERNS:
+        if re.search(pattern, msg):
             return "prev"
+
+    return None
+
+def _visit_request(msg: str):
+    msg = msg.lower().strip()
+
+    for pattern in VISIT_PATTERN:
+        if re.search(pattern, msg):
+            return """ I'd be happy to schedule a visit. To book it, I'll need a few details from you:
+                    1) Your full name
+                    2) Your phone number
+                    3) Preferred date for the visit
+                    4) Preferred time for the visit"""
+        
     return None
 
 
@@ -350,7 +394,7 @@ def _handle_listing_view(session_id: str, user_msg: str, listing_state: dict) ->
     # ── Pagination (text-based "show more" disabled; use accordion button in UI) ──
     direction = _is_pagination_request(user_msg)
     if direction:
-        return "That's all the listings I found."
+        return "That's all the listings I found. If you'd like, I can help you compare specific options, look up more details on a particular property, or adjust your search (like expanding the budget or looking at nearby areas)."
 
     return None
 
@@ -382,6 +426,12 @@ def process_chat(session_id, history: list[dict]) -> str:
         print(f"[chat] view_response handled directly, no LLM call")
         history.append({"role": "assistant", "content": view_response})
         return view_response
+    
+    visit_schedule = _visit_request(user_msg)
+    if visit_schedule is not None:
+        print(f"[chat] visit_schedule questions handled directly, no LLM call")
+        history.append({"role": "assistant", "content":visit_schedule})
+        return visit_schedule
 
     # ── LLM-based comparison ──
     comp = _get_comparison_numbers(user_msg)
