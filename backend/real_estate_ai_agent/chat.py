@@ -466,7 +466,7 @@ def process_chat(session_id, history: list[dict]) -> str:
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "system", "content": listing_context},
-                *history,
+                {"role": "user", "content": user_msg},
             ]
 
             option_str = " and ".join(str(n) for n in nums)
