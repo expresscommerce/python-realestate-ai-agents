@@ -394,12 +394,64 @@ def _handle_listing_view(session_id: str, user_msg: str, listing_state: dict) ->
     # ── Pagination (text-based "show more" disabled; use accordion button in UI) ──
     direction = _is_pagination_request(user_msg)
     if direction:
+        current_params = listing_state.get("current", {}).get("search_params", {})
+        msg_lower = user_msg.lower()
+
+        # --- Check for NEW CITY ---
+        current_city = _normalize_location(current_params.get("city", ""))
+        if current_city:
+            city_match = re.search(
+                r"\bin\s+([a-z][a-z\s]*?)(?:\s+(?:with|for|hous|propert|that|please|and|or|now|budget|\d)|\s*$)",
+                msg_lower,
+            )
+            if city_match:
+                mentioned_city = _normalize_location(city_match.group(1).strip())
+                if mentioned_city and mentioned_city != current_city:
+                    return None
+
+        # --- Check for NEW BUDGET ---
+        current_price = current_params.get("price_max") or current_params.get("price_min")
+        if current_price:
+            budget_match = re.search(r"\$[\d,]+|\d+\s*k\b", msg_lower)
+            if budget_match:
+                raw = budget_match.group(0)
+                if "k" in raw:
+                    new_budget = int(re.sub(r"[^\d]", "", raw)) * 1000
+                else:
+                    new_budget = int(re.sub(r"[^\d]", "", raw))
+                if new_budget and new_budget != current_price:
+                    return None
+
+        # --- Check for NEW BEDROOMS ---
+        current_beds = current_params.get("bedrooms")
+        if current_beds:
+            bed_match = re.search(
+                r"(\d+)\s*(?:bed|bedroom|br|bd)|(?:bed|bedroom|br|bd)s?\s*(\d+)",
+                msg_lower,
+            )
+            if bed_match:
+                new_beds = int(bed_match.group(1) or bed_match.group(2))
+                if new_beds and new_beds != current_beds:
+                    return None
+
+        # --- Check for NEW PROPERTY TYPE ---
+        current_prop_type = (current_params.get("property_type") or "").upper()
+        if current_prop_type:
+            _PROP_KEYWORDS = {
+                "house": "SFR", "houses": "SFR",
+                "condo": "CONDO", "condos": "CONDO",
+                "apartment": "CONDO", "apartments": "CONDO",
+                "multi-family": "MFR", "multifamily": "MFR",
+                "land": "LAND", "plot": "LAND", "plots": "LAND",
+                "mobile": "MOBILE", "mobile home": "MOBILE",
+            }
+            for keyword, prop_type in _PROP_KEYWORDS.items():
+                if keyword in msg_lower and prop_type != current_prop_type:
+                    return None
+
         return "That's all the listings I found. If you'd like, I can help you compare specific options, look up more details on a particular property, or adjust your search (like expanding the budget or looking at nearby areas)."
 
     return None
-
-
-# ── Main pipeline ──
 
 def parse_price(price):
     if not price:
@@ -411,6 +463,7 @@ def parse_sqft(sqft):
         return None
     return int(re.sub(r"[^\d]", "", str(sqft)))
 
+# ── Main pipeline ──
 
 def process_chat(session_id, history: list[dict]) -> str:
     """Run the chat pipeline. Mutates history in place. Returns the assistant reply."""

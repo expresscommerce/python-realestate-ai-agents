@@ -397,6 +397,90 @@
     border-color: var(--primary);
   }
 
+  .quick-tip{
+    position:fixed;
+    right:25px;
+    bottom:100px;
+
+    width:300px;
+
+    background:white;
+    border:1px solid var(--border);
+    border-radius:16px;
+
+    box-shadow:0 10px 30px rgba(0,0,0,.15);
+
+    z-index:1000;
+
+    overflow:hidden;
+
+    animation:fadeUp .25s ease;
+  }
+
+  .quick-tip.hidden{
+      display:none;
+  }
+
+  .quick-tip-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+
+      padding:12px 15px;
+
+      background:var(--primary);
+
+      color:white;
+      font-weight:600;
+  }
+
+  .quick-tip-header button{
+      background:none;
+      border:none;
+      color:white;
+      font-size:20px;
+      cursor:pointer;
+  }
+
+  .quick-tip-body{
+      padding:15px;
+  }
+
+  .tip-action{
+      width:100%;
+
+      border:1px solid var(--border);
+
+      border-radius:10px;
+
+      background:#f8fafc;
+
+      padding:12px;
+
+      margin-bottom:10px;
+
+      cursor:pointer;
+
+      text-align:left;
+
+      transition:.2s;
+  }
+
+  .tip-action:hover{
+      background:var(--primary-light);
+      border-color:var(--primary);
+  }
+
+  .tip-action:last-child{
+      margin-bottom:0;
+  }
+
+  .tip-action small{
+      display:block;
+      color:var(--muted);
+      margin-top:5px;
+      font-size:12px;
+  }
 </style>
 </head>
 <body>
@@ -427,6 +511,30 @@
       <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
     </svg>
   </button>
+</div>
+
+<!-- Quick Actions Floating Card -->
+<div id="quick-tip" class="quick-tip hidden">
+  <div class="quick-tip-header">
+    <span>💡 Quick Actions</span>
+    <button onclick="hideQuickTip()">&times;</button>
+  </div>
+
+  <div class="quick-tip-body">
+
+    <button class="tip-action"
+            onclick="fillInput('Compare Option 3 and Option 8')">
+      🔍 Compare two properties
+      <small>Example: Compare Option 3 and Option 8</small>
+    </button>
+
+    <button class="tip-action"
+            onclick="fillInput('Schedule a visit for Option 5')">
+      📅 Schedule a visit
+      <small>Example: Schedule a visit for Option 5</small>
+    </button>
+
+  </div>
 </div>
 
 <script>
@@ -570,6 +678,7 @@ function addMsg(role, text) {
   bubble.className = 'bubble';
 
   if (role === 'bot' && /\*\*Option\s*\d/.test(text)) {
+    showQuickTip();
     text = text.replace(/\n?\n?Say\s+['"]?show more['"]?.*$/i, '').trim();
     const parsed = parseListingResponse(text);
     if (parsed) {
@@ -609,6 +718,7 @@ async function send(text) {
   quickDiv.style.display = 'none';
 
   addMsg('user', text);
+  hideQuickTip();
   input.value = '';
   input.style.height = '44px';
   showTyping();
@@ -644,6 +754,19 @@ input.addEventListener('input', () => {
   input.style.height = '44px';
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 });
+
+function showQuickTip(){
+    document.getElementById("quick-tip").classList.remove("hidden");
+}
+
+function hideQuickTip(){
+    document.getElementById("quick-tip").classList.add("hidden");
+}
+
+function fillInput(text){
+    input.value = text;
+    input.focus();
+}
 
 
 // Safety net: force every link inside the chat to open in a new tab
