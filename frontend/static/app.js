@@ -153,11 +153,18 @@ function formatText(raw) {
 /* ── Listing accordion helpers ── */
 
 function parseListingResponse(text) {
-  const parts = text.split(/\*\*Option\s*\d+\*\*/);
-  if (parts.length < 2) return null;
+  const parts = text.split(/(\*\*Option\s*\d+\*\*)/);
+  if (parts.length < 3) return null;
 
   const intro = (parts[0] || '').replace(/\n{3,}/g, '\n\n').trim();
-  const listings = parts.slice(1).map((s, idx) => '**Option ' + (idx + 1) + '**\n' + s.trim()).filter(Boolean);
+  const listings = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const header = parts[i];
+    const content = (parts[i + 1] || '').trim();
+    if (header && content) {
+      listings.push(header + '\n' + content);
+    }
+  }
   return { intro, listings };
 }
 
