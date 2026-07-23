@@ -19,15 +19,24 @@
 
 /* ── Dark Theme ── */
 [data-theme="dark"] {
-  --primary: #14b8a6;       /* Brighter teal to pop against dark backgrounds */
-  --primary-dark: #0f766e;  /* Swapped to match original primary */
-  --primary-light: #115e59; /* Deep teal background for dark mode alerts/badges */
-  --bg: #0b1329;            /* Deep slate/midnight background */
-  --surface: #1e293b;       /* Darker slate for cards, menus, and containers */
-  --text: #f8fafc;          /* Off-white text for excellent readability */
-  --muted: #94a3b8;         /* Lighter muted gray so it doesn't wash out */
-  --border: #334155;        /* Subtle dark border */
-  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4); /* Stronger shadow for dark mode depth */
+  --primary: #14b8a6;
+  /* Brighter teal to pop against dark backgrounds */
+  --primary-dark: #0f766e;
+  /* Swapped to match original primary */
+  --primary-light: #115e59;
+  /* Deep teal background for dark mode alerts/badges */
+  --bg: #0b1329;
+  /* Deep slate/midnight background */
+  --surface: #1e293b;
+  /* Darker slate for cards, menus, and containers */
+  --text: #f8fafc;
+  /* Off-white text for excellent readability */
+  --muted: #94a3b8;
+  /* Lighter muted gray so it doesn't wash out */
+  --border: #334155;
+  /* Subtle dark border */
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  /* Stronger shadow for dark mode depth */
 
   --user-avatar-bg: #1e3a5f;
   --user-avatar-color: #93c5fd;
@@ -55,8 +64,15 @@ body {
 }
 
 /* ── Smooth transitions on all major containers ── */
-header, #input-area, .quick-actions, .modal-card,
-.bubble, .listing-card, .quick-tip, .tip-action {
+header,
+#input-area,
+.quick-actions,
+.modal-card,
+.bubble,
+.listing-card,
+.quick-tip,
+.tip-action,
+.listing-action-btn {
   transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
@@ -172,6 +188,11 @@ header p {
 .msg.bot .avatar {
   background: var(--primary-light);
   color: var(--primary-dark);
+}
+
+[data-theme="dark"] .msg.bot .avatar {
+  background: #064e3b;
+  color: #6ee7b7;
 }
 
 .msg.user .avatar {
@@ -377,6 +398,12 @@ header p {
   transition: all .2s;
   font-family: inherit;
   white-space: nowrap;
+}
+
+[data-theme="dark"] .quick-btn {
+  background: #064e3b;
+  color: #6ee7b7;
+  border-color: #059669;
 }
 
 .quick-btn:hover {
@@ -685,6 +712,16 @@ header p {
     background: var(--primary-light);
     border-radius: 8px 8px 0 0;
   }
+
+  .listing-actions {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .listing-action-btn {
+    justify-content: center;
+    padding: 8px 14px;
+  }
 }
 
 /* ── Listing accordion ── */
@@ -718,6 +755,76 @@ header p {
   word-break: break-all;
 }
 
+/* ── Listing action buttons ── */
+.listing-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  list-style: none;
+  padding-left: 0;
+}
+
+.listing-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none !important;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.bubble .listing-view-btn {
+  background: var(--primary-light);
+  color: var(--primary-dark) !important;
+  border: 1px solid var(--border);
+}
+
+.bubble .listing-view-btn:hover {
+  background: var(--primary);
+  color: #fff !important;
+  border-color: var(--primary);
+}
+
+.bubble .listing-map-btn {
+  background: #eff6ff;
+  color: #1d4ed8 !important;
+  border: 1px solid #bfdbfe;
+}
+
+.bubble .listing-map-btn:hover {
+  background: #2563eb;
+  color: #fff !important;
+  border-color: #2563eb;
+}
+
+[data-theme="dark"] .bubble .listing-map-btn {
+  background: #1e3a5f;
+  color: #93c5fd !important;
+  border-color: #3b82f6;
+}
+
+[data-theme="dark"] .bubble .listing-map-btn:hover {
+  background: #3b82f6;
+  color: #fff !important;
+  border-color: #3b82f6;
+}
+
+[data-theme="dark"] .bubble .listing-view-btn {
+  background: #064e3b;
+  color: #6ee7b7 !important;
+  border-color: #059669;
+}
+
+[data-theme="dark"] .bubble .listing-view-btn:hover {
+  background: #059669;
+  color: #fff !important;
+  border-color: #059669;
+}
+
 .show-more-btn {
   display: inline-block;
   margin-top: 4px;
@@ -734,10 +841,22 @@ header p {
   text-align: center;
 }
 
+[data-theme="dark"] .show-more-btn {
+  background: #064e3b;
+  color: #6ee7b7;
+  border-color: #059669;
+}
+
 .show-more-btn:hover {
   background: var(--primary);
   color: #fff;
   border-color: var(--primary);
+}
+
+[data-theme="dark"] .show-more-btn:hover {
+  background: #059669;
+  color: #fff;
+  border-color: #059669;
 }
 
 /* ── Quick Tip Floating Card ── */
@@ -834,6 +953,7 @@ header p {
 }
 
 @keyframes tip-pulse {
+
   0%,
   100% {
     box-shadow: 0 0 0 0 rgba(15, 118, 110, .5);

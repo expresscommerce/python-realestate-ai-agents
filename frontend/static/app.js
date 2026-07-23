@@ -137,6 +137,16 @@ function formatText(raw) {
     return '<p>' + p + '</p>';
   }).join('');
 
+  // Convert "View listing" and "View on map" links into icon + text action buttons
+  t = t.replace(
+    /<li>\s*<strong>View listing:<\/strong>\s*<a href="([^"]+)"[^>]*>[^<]*<\/a><\/li>/g,
+    '<li class="listing-actions"><a href="$1" target="_blank" rel="noopener noreferrer" class="listing-action-btn listing-view-btn">🏠 View Listing</a></li>'
+  );
+  t = t.replace(
+    /<li>\s*<strong>View on map:<\/strong>\s*<a href="([^"]+)"[^>]*>[^<]*<\/a><\/li>/g,
+    '<li class="listing-actions"><a href="$1" target="_blank" rel="noopener noreferrer" class="listing-action-btn listing-map-btn">📍 View on Map</a></li>'
+  );
+
   return t.replace(/<p><\/p>/g, '') || raw;
 }
 
