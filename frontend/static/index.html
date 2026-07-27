@@ -6,43 +6,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PropertyBot — AI Real Estate Assistant</title>
   <link rel="stylesheet" href="static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
 </head>
 
 <body>
 
   <header>
-    <div class="logo">&#127968;</div>
+    <div class="logo">
+      <span class="material-symbols-outlined">home</span>
+    </div>
     <div>
       <h1>PropertyBot</h1>
       <p>AI Real Estate Assistant — United States</p>
     </div>
     <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
-      <span id="theme-icon">🌙</span>
+      <span id="theme-icon" class="material-symbols-outlined">dark_mode</span>
       <span id="theme-text">Dark Mode</span>
     </button>
   </header>
+  <div class="app-card">
 
-  <div id="chat"></div>
+    <div id="chat">
+      <div id="empty-state">
+        <div class="empty-icon">
+          <span class="material-symbols-outlined">home</span>
+        </div>
+        <h2>Finding a home? I can help...</h2>
+        <p>Ask me to find, compare, or schedule a tour for any home.</p>
+      </div>
+    </div>
 
-  <div class="quick-actions" id="quick-actions">
-    <button class="quick-btn" onclick="sendQuick('I want to buy a house in Austin under $600k')">Buy in Austin</button>
-    <button class="quick-btn" onclick="sendQuick('Rent a 2-bed apartment in Seattle under $3500')">Rent in Seattle</button>
-    <button class="quick-btn" onclick="sendQuick('Find homes in Miami around $1M')">Homes in Miami</button>
-    <button class="quick-btn" onclick="sendQuick('I need a 1-bed apartment in New York for rent')">Rent in NYC</button>
-    <button class="quick-btn" onclick="sendQuick('Show me condos in San Francisco for sale')">Condos in SF</button>
+    <div class="quick-actions" id="quick-actions">
+      <button class="quick-btn" onclick="sendQuick('I want to buy a house in Austin under $600k')">✦ Buy in
+        Austin</button>
+      <button class="quick-btn" onclick="sendQuick('Rent a 2-bed apartment in Seattle under $3500')">✦ Rent in
+        Seattle</button>
+      <button class="quick-btn" onclick="sendQuick('Find homes in Miami around $1M')">✦ Homes in Miami</button>
+      <button class="quick-btn" onclick="sendQuick('I need a 1-bed apartment in New York for rent')">✦ Rent in
+        NYC</button>
+      <button class="quick-btn" onclick="sendQuick('Show me condos in San Francisco for sale')">✦ Condos in SF</button>
+    </div>
+
+    <div id="input-area">
+      <button id="tip-toggle" title="Quick actions" onclick="toggleQuickTip()">+</button>
+      <textarea id="msg-input" rows="1" placeholder="Ask PropertyBot to find a home..."></textarea>
+      <button id="send-btn" title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+          stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+
   </div>
 
-  <div id="input-area">
-    <button id="tip-toggle" title="Quick actions" onclick="toggleQuickTip()">?</button>
-    <textarea id="msg-input" rows="1" placeholder="Type your message... (Enter to send)"></textarea>
-    <button id="send-btn" title="Send">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-        stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-      </svg>
-    </button>
-  </div>
+  <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" aria-label="Scroll to bottom">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+      stroke-linejoin="round">
+      <polyline points="6 9 12 15 18 9"></polyline>
+    </svg>
+  </button>
 
   <!-- Quick Actions Floating Card -->
   <div id="quick-tip" class="quick-tip hidden">
@@ -62,7 +89,6 @@
       </button>
     </div>
   </div>
-
   <script src="static/app.js"></script>
 </body>
 
