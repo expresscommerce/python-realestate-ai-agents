@@ -1,6 +1,7 @@
 """Property listing search and lookup tools."""
 
 from __future__ import annotations
+from urllib.parse import quote_plus
 
 import logging
 import re
@@ -91,6 +92,8 @@ def _format_listing_card(i: int, card: dict, city: str, state: str) -> list[str]
         lines.append(f"- **Sqft:** {sqft}")
     if link:
         lines.append(f"- **View listing:** {link}")
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(addr)}"
+        lines.append(f"- **View on map:** {maps_url}")
     lines.append("")
     return lines
 

@@ -14,6 +14,7 @@ directly from listing_state without re-sending data to the LLM.
 import json
 import logging
 import re
+from urllib.parse import quote_plus
 
 import litellm
 
@@ -374,6 +375,8 @@ def _format_single_listing(listing: dict, option_number: int = None) -> str:
     if link:
         detail_link = link if "#" in str(link) else f"{link}#amenities"
         lines.append(f"- **View listing:** {detail_link}")
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(addr)}"
+        lines.append(f"- **View on map:** {maps_url}")
     return "\n".join(lines)
 
 
