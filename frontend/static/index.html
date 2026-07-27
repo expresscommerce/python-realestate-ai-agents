@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="static/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
 </head>
 
@@ -16,59 +16,73 @@
 
   <header>
     <div class="logo">
-      <img src="static/assets/home16px.png" alt="home" width="16" height="16">
+      <span class="material-symbols-outlined logo-icon">waving_hand</span>
     </div>
-    <div>
-      <h1>PropertyBot</h1>
-      <p>AI Real Estate Assistant — United States</p>
+    <div class="brand-title">
+      <h1>PropertyBot AI</h1>
     </div>
-    <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
-      <span id="theme-icon" class="material-symbols-outlined">dark_mode</span>
-      <span id="theme-text">Dark Mode</span>
-    </button>
+    <div class="header-actions">
+      <button id="new-search-btn" class="new-search-btn" title="Start a fresh search">
+        <span class="material-symbols-outlined">refresh</span>
+        <span>New Search</span>
+      </button>
+      <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
+        <span id="theme-icon" class="material-symbols-outlined">dark_mode</span>
+        <span id="theme-text">Dark Mode</span>
+      </button>
+    </div>
   </header>
-  <div class="app-card">
 
+  <main class="main-container">
     <div id="chat">
       <div id="empty-state">
-        <div class="empty-icon">
-          <img src="static/assets/home 32px.png" alt="home" width="32" height="32">
+        <div class="hero-section">
+          <p class="hero-greeting">Welcome to PropertyBot</p>
+          <h1 class="hero-title">What would you like to know?</h1>
+          <p class="hero-subtitle">Use one of the most common prompts below<br>or ask your own to begin</p>
         </div>
-        <h2>Finding a home? I can help...</h2>
-        <p>Ask me to find, compare, or schedule a tour for any home.</p>
+
+        <div class="cards-grid" id="quick-actions">
+          <button class="prompt-card" onclick="sendQuick('I want to buy a 3-bedroom house in Austin under $600k')">
+            <div class="card-icon-wrap">
+              <span class="material-symbols-outlined">home</span>
+            </div>
+            <div class="card-text">Buy a 3-bedroom house in Austin under $600k</div>
+          </button>
+          <button class="prompt-card" onclick="sendQuick('Rent a 2-bed apartment in Seattle under $3500')">
+            <div class="card-icon-wrap">
+              <span class="material-symbols-outlined">mail</span>
+            </div>
+            <div class="card-text">Rent a 2-bed apartment in Seattle under $3500</div>
+          </button>
+          <button class="prompt-card" onclick="sendQuick('Find luxury condos in Miami around $1M')">
+            <div class="card-icon-wrap">
+              <span class="material-symbols-outlined">bubble_chart</span>
+            </div>
+            <div class="card-text">Find luxury condos in Miami around $1M</div>
+          </button>
+        </div>
       </div>
     </div>
 
-    <div class="quick-actions" id="quick-actions">
-      <button class="quick-btn" onclick="sendQuick('I want to buy a house in Austin under $600k')">✦ Buy in
-        Austin</button>
-      <button class="quick-btn" onclick="sendQuick('Rent a 2-bed apartment in Seattle under $3500')">✦ Rent in
-        Seattle</button>
-      <button class="quick-btn" onclick="sendQuick('Find homes in Miami around $1M')">✦ Homes in Miami</button>
-      <button class="quick-btn" onclick="sendQuick('I need a 1-bed apartment in New York for rent')">✦ Rent in
-        NYC</button>
-      <button class="quick-btn" onclick="sendQuick('Show me condos in San Francisco for sale')">✦ Condos in SF</button>
+    <div id="input-area-wrapper">
+      <div id="input-area" class="input-pill">
+        <!-- <button id="tip-toggle" class="pill-left-btn" title="Quick actions" onclick="toggleQuickTip()">
+          <span class="material-symbols-outlined">link</span>
+        </button> -->
+        <textarea id="msg-input" rows="1" placeholder="Ask whatever you want..."></textarea>
+        <button id="send-btn" class="pill-send-btn" title="Send">
+          <span class="material-symbols-outlined">arrow_forward</span>
+        </button>
+      </div>
     </div>
-
-    <div id="input-area">
-      <button id="tip-toggle" title="Quick actions" onclick="toggleQuickTip()">+</button>
-      <textarea id="msg-input" rows="1" placeholder="Ask PropertyBot to find a home..."></textarea>
-      <button id="send-btn" title="Send">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-          stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
-    </div>
-
-  </div>
+  </main>
 
   <button id="scroll-bottom-btn" class="scroll-bottom-btn" aria-label="Scroll to bottom">
-    <img src="static/assets/bottom 16px.png" alt="scroll" width="18" height="18">
+    <span class="material-symbols-outlined">arrow_downward</span>
   </button>
 
-  <!-- Quick Actions Floating Card -->
+  <!-- Quick Actions Floating Card (Commented Out)
   <div id="quick-tip" class="quick-tip hidden">
     <div class="quick-tip-header">
       <span>Quick Actions</span>
@@ -85,7 +99,7 @@
         <small>Example: Schedule a visit for Option 5</small>
       </button>
     </div>
-  </div>
+  </div> -->
   <script src="static/app.js"></script>
 </body>
 

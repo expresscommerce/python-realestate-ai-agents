@@ -35,6 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    const newSearchBtn = document.getElementById('new-search-btn');
+    if (newSearchBtn) {
+        newSearchBtn.addEventListener('click', () => {
+            localStorage.removeItem('pb_sid');
+            window.location.reload();
+        });
+    }
+
     const sendBtn = document.getElementById('send-btn');
     const input = document.getElementById('msg-input');
 
@@ -140,11 +148,11 @@ function formatText(raw) {
     // Convert "View listing" and "View on map" links into icon + text action buttons
     t = t.replace(
         /<li>\s*<strong>View listing:<\/strong>\s*<a href="([^"]+)"[^>]*>[^<]*<\/a><\/li>/g,
-        '<li class="listing-actions"><a href="$1" target="_blank" rel="noopener noreferrer" class="listing-action-btn listing-view-btn"><img src="static/assets/home16px.png" alt="" width="16" height="16"> View Listing</a></li>'
+        '<li class="listing-actions"><a href="$1" target="_blank" rel="noopener noreferrer" class="listing-action-btn listing-view-btn"><span class="material-symbols-outlined">home</span> View Listing</a></li>'
     );
     t = t.replace(
         /<li>\s*<strong>View on map:<\/strong>\s*<a href="([^"]+)"[^>]*>[^<]*<\/a><\/li>/g,
-        '<li class="listing-actions"><a href="$1" target="_blank" rel="noopener noreferrer" class="listing-action-btn listing-map-btn"><img src="static/assets/pin 16px.png" alt="" width="16" height="16"> View on Map</a></li>'
+        '<li class="listing-actions"><a href="$1" target="_blank" rel="noopener noreferrer" class="listing-action-btn listing-map-btn"><span class="material-symbols-outlined">location_on</span> View on Map</a></li>'
     );
 
     return t.replace(/<p><\/p>/g, '') || raw;
@@ -258,7 +266,7 @@ function renderListings(intro, listings, bubble) {
         container.appendChild(introDiv);
     }
 
-    const BATCH = 10;
+    const BATCH = 5;
     const allCards = [];
 
     listings.forEach((md, i) => {
@@ -271,13 +279,13 @@ function renderListings(intro, listings, bubble) {
             let specsHtml = '';
             const statItems = [];
             if (parsedCard.beds) {
-                statItems.push(`<span class="rpc-stat"><img src="static/assets/bed 16px.png" alt="" width="16" height="16"> <strong>${parsedCard.beds}</strong></span>`);
+                statItems.push(`<span class="rpc-stat"><span class="material-symbols-outlined rpc-stat-icon">bed</span> <strong>${parsedCard.beds}</strong></span>`);
             }
             if (parsedCard.baths) {
-                statItems.push(`<span class="rpc-stat"><img src="static/assets/bath 16px.png" alt="" width="16" height="16"> <strong>${parsedCard.baths}</strong></span>`);
+                statItems.push(`<span class="rpc-stat"><span class="material-symbols-outlined rpc-stat-icon">bathtub</span> <strong>${parsedCard.baths}</strong></span>`);
             }
             if (parsedCard.sqft) {
-                statItems.push(`<span class="rpc-stat"><img src="static/assets/sqft 16px.png" alt="" width="16" height="16"> <strong>${parsedCard.sqft}</strong></span>`);
+                statItems.push(`<span class="rpc-stat"><span class="material-symbols-outlined rpc-stat-icon">square_foot</span> <strong>${parsedCard.sqft}</strong></span>`);
             }
 
             if (statItems.length > 0) {
@@ -286,10 +294,10 @@ function renderListings(intro, listings, bubble) {
 
             let actionsHtml = '';
             if (parsedCard.viewUrl) {
-                actionsHtml += `<a href="${parsedCard.viewUrl}" target="_blank" rel="noopener noreferrer" class="rpc-btn rpc-btn-primary"><img src="static/assets/home16px.png" alt="" width="16" height="16"> View Listing</a>`;
+                actionsHtml += `<a href="${parsedCard.viewUrl}" target="_blank" rel="noopener noreferrer" class="rpc-btn rpc-btn-primary"><span class="material-symbols-outlined rpc-btn-icon">home</span> View Listing</a>`;
             }
             if (parsedCard.mapUrl) {
-                actionsHtml += `<a href="${parsedCard.mapUrl}" target="_blank" rel="noopener noreferrer" class="rpc-btn rpc-btn-secondary"><img src="static/assets/pin 16px.png" alt="" width="16" height="16"> View on Map</a>`;
+                actionsHtml += `<a href="${parsedCard.mapUrl}" target="_blank" rel="noopener noreferrer" class="rpc-btn rpc-btn-secondary"><span class="material-symbols-outlined rpc-btn-icon">location_on</span> View on Map</a>`;
             }
 
             let extraHtml = '';
@@ -304,7 +312,7 @@ function renderListings(intro, listings, bubble) {
             </div>
             <div class="rpc-body">
             <div class="rpc-title">${parsedCard.address}</div>
-                ${parsedCard.location ? `<div class="rpc-location"><img src="static/assets/pin 16px.png" alt="" width="14" height="14" style="vertical-align:middle"> ${parsedCard.location}</div>` : ''}
+                ${parsedCard.location ? `<div class="rpc-location"><span class="material-symbols-outlined rpc-loc-icon">location_on</span> ${parsedCard.location}</div>` : ''}
                 ${specsHtml ? `<div class="rpc-specs">${specsHtml}</div>` : ''}
                 ${extraHtml}
             <div class="rpc-actions">${actionsHtml}</div>
@@ -352,7 +360,6 @@ function renderListings(intro, listings, bubble) {
 
 function addMsg(role, text) {
     const chat = document.getElementById('chat');
-    const tipToggleBtn = document.getElementById('tip-toggle');
     const emptyState = document.getElementById('empty-state');
 
     if (!chat) return;
@@ -363,17 +370,14 @@ function addMsg(role, text) {
 
     const av = document.createElement('div');
     av.className = 'avatar';
-    av.innerHTML = role === 'bot' ? '<img src="static/assets/home16px.png" alt="" width="16" height="16">' : '<img src="static/assets/user 16px.png" alt="" width="16" height="16">';
+    av.innerHTML = role === 'bot'
+        ? '<span class="material-symbols-outlined">smart_toy</span>'
+        : '<span class="material-symbols-outlined">person</span>';
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
 
     if (role === 'bot' && /\*\*Option\s*\d/.test(text)) {
-        if (window.innerWidth <= 480 && tipToggleBtn) {
-            tipToggleBtn.classList.add('visible', 'pulse');
-        } else {
-            showQuickTip();
-        }
         text = text.replace(/\n?\n?Say\s+['"]?show more['"]?.*$/i, '').trim();
         const parsed = parseListingResponse(text);
         if (parsed) {
@@ -397,7 +401,7 @@ function showTyping() {
     const el = document.createElement('div');
     el.className = 'msg bot';
     el.id = 'typing';
-    el.innerHTML = '<div class="avatar"><img src="static/assets/home16px.png" alt="" width="16" height="16"></div><div class="bubble typing"><span></span><span></span><span></span></div>';
+    el.innerHTML = '<div class="avatar"><span class="material-symbols-outlined">smart_toy</span></div><div class="bubble typing"><span></span><span></span><span></span></div>';
     chat.appendChild(el);
     scrollBottom();
 }
@@ -410,18 +414,13 @@ function hideTyping() {
 async function send(text) {
     text = text.trim();
     const sendBtn = document.getElementById('send-btn');
-    const quickDiv = document.getElementById('quick-actions');
-    const tipToggleBtn = document.getElementById('tip-toggle');
     const input = document.getElementById('msg-input');
 
     if (!text || busy) return;
     busy = true;
     if (sendBtn) sendBtn.disabled = true;
-    if (quickDiv) quickDiv.style.display = 'none';
 
     addMsg('user', text);
-    hideQuickTip();
-    if (tipToggleBtn) tipToggleBtn.classList.remove('visible');
     if (input) {
         input.value = '';
         input.style.height = '44px';
@@ -429,7 +428,7 @@ async function send(text) {
     showTyping();
 
     try {
-        const res = await fetch('http://localhost:8000/api/chat', {
+        const res = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: sessionId, message: text }),
@@ -460,9 +459,7 @@ function showQuickTip() {
 
 function hideQuickTip() {
     const tip = document.getElementById("quick-tip");
-    const tipToggleBtn = document.getElementById('tip-toggle');
     if (tip) tip.classList.add("hidden");
-    if (tipToggleBtn) tipToggleBtn.classList.remove("pulse");
 }
 
 function toggleQuickTip() {
