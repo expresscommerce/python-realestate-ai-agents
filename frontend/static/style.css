@@ -933,11 +933,6 @@ header p {
     border-color: var(--primary);
 }
 
-.scroll-bottom-btn svg {
-    width: 18px;
-    height: 18px;
-}
-
 .scroll-bottom-btn.hidden {
     display: none;
 }
