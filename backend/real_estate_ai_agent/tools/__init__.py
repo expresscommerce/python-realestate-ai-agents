@@ -28,8 +28,7 @@ TOOL_DEFS = [
                     "state": {"type": "string", "description": "Two-letter state code, e.g. TX"},
                     "listing_type": {"type": "string", "enum": ["sale", "rent"]},
                     "property_type": {"type": "string", "enum": ["SFR", "CONDO", "MFR", "LAND", "MOBILE", "OTHER"]},
-                    "bedrooms_min": {"type": "integer"},
-                    "bedrooms_max": {"type": "integer"},
+                    "bedrooms": {"type": "integer", "description": "Exact number of bedrooms"},
                     "bathrooms_min": {"type": "integer"},
                     "price_min": {"type": "integer"},
                     "price_max": {"type": "integer"},
@@ -130,7 +129,7 @@ _DISPATCH = {
 }
 
 
-def run_tool(name: str, arguments: dict) -> str:
+def run_tool(name: str, arguments: dict) -> str | dict:
     import logging
     log = logging.getLogger(__name__)
     fn = _DISPATCH.get(name)

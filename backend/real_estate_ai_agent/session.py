@@ -1,18 +1,23 @@
 """Session management: Redis with in-memory fallback.
 
-Stores chat history per session_id. Redis provides persistence across
-restarts; in-memory dict is the fallback when Redis is unavailable.
+Stores chat history, search state, and listing state per session_id.
+Redis provides persistence across restarts; in-memory dict is the
+fallback when Redis is unavailable.
 """
 
+import copy
 import json
 import logging
 
 from .config import REDIS_URL
+from .listing_state import DEFAULT_LISTING_STATE
 from .search_state import DEFAULT_SEARCH_STATE
+
 log = logging.getLogger(__name__)
 
 _local: dict[str, list[dict]] = {}
-_local_state = {} 
+_local_state: dict = {}
+_local_listing: dict = {}
 _redis = None
 
 SESSION_TTL = 60 * 60 * 24  # 24 hours
@@ -36,6 +41,8 @@ def _get_redis():
         return None
 
 
+# ── Chat History ──
+
 def get_history(session_id: str) -> list[dict]:
     r = _get_redis()
     if r:
@@ -51,7 +58,6 @@ def get_history(session_id: str) -> list[dict]:
 
 
 def save_history(session_id: str, history) -> None:
-
     _local[session_id] = history
     r = _get_redis()
     if r:
@@ -60,6 +66,8 @@ def save_history(session_id: str, history) -> None:
         except Exception:
             pass
 
+
+# ── Search State ──
 
 def get_search_state(session_id):
     r = _get_redis()
@@ -85,11 +93,43 @@ def save_search_state(session_id, state):
             pass
 
 
+# ── Listing State ──
+
+def get_listing_state(session_id):
+    r = _get_redis()
+    if r:
+        try:
+            raw = r.get(f"listing:{session_id}")
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+    return _local_listing.get(session_id) or copy.deepcopy(DEFAULT_LISTING_STATE)
+
+
+def save_listing_state(session_id, state):
+    _local_listing[session_id] = state
+    r = _get_redis()
+    if r:
+        try:
+            r.setex(f"listing:{session_id}", SESSION_TTL, json.dumps(state))
+        except Exception:
+            pass
+
+
+# ── Cleanup ──
+
 def clear_history(session_id: str) -> None:
     _local.pop(session_id, None)
+    _local_state.pop(session_id, None)
+    _local_listing.pop(session_id, None)
     r = _get_redis()
     if r:
         try:
             r.delete(f"sess:{session_id}")
+            r.delete(f"state:{session_id}")
+            r.delete(f"listing:{session_id}")
         except Exception:
             pass

@@ -1,6 +1,7 @@
 """Property listing search and lookup tools."""
 
 from __future__ import annotations
+from urllib.parse import quote_plus
 
 import logging
 import re
@@ -91,6 +92,8 @@ def _format_listing_card(i: int, card: dict, city: str, state: str) -> list[str]
         lines.append(f"- **Sqft:** {sqft}")
     if link:
         lines.append(f"- **View listing:** {link}")
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(addr)}"
+        lines.append(f"- **View on map:** {maps_url}")
     lines.append("")
     return lines
 
@@ -160,8 +163,7 @@ def _normalize_and_filter_cards(
     listing_type: str,
     price_min: int,
     price_max: int,
-    bedrooms_min: int,
-    bedrooms_max: int,
+    bedrooms: int,
 ) -> list[dict]:
     out: list[dict] = []
     req_city = _normalize_city_for_compare(city)
@@ -213,9 +215,7 @@ def _normalize_and_filter_cards(
             beds_n = float(beds_val) if beds_val not in (None, "") else None
         except (TypeError, ValueError):
             beds_n = None
-        if bedrooms_min and beds_n is not None and beds_n < bedrooms_min:
-            continue
-        if bedrooms_max and beds_n is not None and beds_n > bedrooms_max:
+        if bedrooms and beds_n is not None and beds_n != bedrooms:
             continue
 
         out.append(c)
@@ -227,20 +227,20 @@ def search_listings(
     state: str,
     listing_type: str = "",
     property_type: str = "",
-    bedrooms_min: int = 0,
-    bedrooms_max: int = 0,
+    bedrooms: int = 0,
     bathrooms_min: int = 0,
     price_min: int = 0,
     price_max: int = 0,
     limit: int = 5,
     offset: int = 0,
-) -> str:
+) -> str | dict:
+    print(f"[listings.py] search_listings called: city={city}, state={state}, bedrooms={bedrooms}, price_max={price_max}, limit={limit}, offset={offset}")
     missing: list[str] = []
     if not city or not state:
         missing.append("city and state")
     if not price_max:
         missing.append("budget (maximum price)")
-    if not bedrooms_min and not bedrooms_max:
+    if not bedrooms:
         missing.append("number of bedrooms")
     if missing:
         return (
@@ -255,10 +255,12 @@ def search_listings(
     display_city = _display_city_label(city, state)
     label = "rentals" if lt == "rent" else "homes"
 
-    scrape_count = show_limit + skip + 5
+    # Scrape a large pool so the city/price/bedroom filter has enough to work with.
+    # With only 10 scraped, typically only 2-4 survive filtering — not enough for Show More.
+    # With 40+ scraped, 6-15 typically survive, reliably triggering the Show More button.
+    scrape_count = max(40, show_limit * 6 + skip)
 
-    req_bedrooms_min = bedrooms_min
-    req_bedrooms_max = bedrooms_max
+    req_bedrooms = bedrooms
 
     redfin_url = _redfin_search_url(
         city,
@@ -266,8 +268,7 @@ def search_listings(
         listing_type=lt,
         price_min=price_min,
         price_max=price_max,
-        bedrooms_min=bedrooms_min,
-        bedrooms_max=bedrooms_max,
+        bedrooms=bedrooms,
         property_type=property_type,
     )
     log.info("search_listings redfin url: %s  (limit=%d, offset=%d)", redfin_url, show_limit, skip)
@@ -293,43 +294,52 @@ def search_listings(
         listing_type=lt,
         price_min=price_min,
         price_max=price_max,
-        bedrooms_min=bedrooms_min,
-        bedrooms_max=bedrooms_max,
+        bedrooms=bedrooms,
     )
 
     filtered_count = len(cards)
     log.info("search_listings kept %d cards after filtering", filtered_count)
 
-    page_cards = cards[skip: skip + show_limit]
-
-    if page_cards:
+    if cards:
         total = len(cards)
-        showing_start = skip + 1
-        showing_end = skip + len(page_cards)
+        # Cap display at a reasonable max (20) so the response isn't enormous,
+        # but always include more than BATCH=5 so the frontend Show More button appears.
+        display_cards = cards
         lines = [
-            f"Here are {label} {showing_start}–{showing_end} (of {total} found) in {display_city}, {state}:\n",
+            f"I found **{total} matching {label}** in {display_city}, {state}.",
         ]
-        for i, card in enumerate(page_cards, showing_start):
+
+        for i, card in enumerate(display_cards, 1):
             lines.extend(_format_listing_card(i, card, display_city, state))
-        if showing_end < total:
-            lines.append(f"There are {total - showing_end} more listings available. Say 'show more' to see the next batch.")
-        return "\n".join(lines)
 
-    if skip > 0:
-        return f"No more listings beyond the ones already shown for {display_city}, {state}."
+        search_params = {
+            "city": city,
+            "state": state,
+            "listing_type": lt,
+            "property_type": property_type,
+            "bedrooms": bedrooms,
+            "bathrooms_min": bathrooms_min,
+            "price_min": price_min,
+            "price_max": price_max,
+        }
 
-    if req_bedrooms_min and req_bedrooms_min > 5 and scraped_count > 0 and filtered_count == 0:
+        log.info(
+            "search_listings returning %d listings (capped from %d filtered, %d scraped)",
+            len(display_cards), total, scraped_count,
+        )
+
+        return {
+            "message": "\n".join(lines),
+            "listings": display_cards,
+            "search_params": search_params,
+        }
+
+    if req_bedrooms and req_bedrooms > 5 and scraped_count > 0 and filtered_count == 0:
         return (
             f"I found {scraped_count} listings matching your city/budget, but none of them clearly show "
-            f"{req_bedrooms_min}+ bedrooms.\n"
+            f"{req_bedrooms} bedrooms.\n"
             f"Redfin only supports a 5+ bedroom filter, so I search 5+ and then filter for your exact request.\n"
             f"If you want, I can still show the best 5+ bedroom matches and you can open them to verify bedroom count."
-        )
-    if req_bedrooms_max and req_bedrooms_max > 5 and scraped_count > 0 and filtered_count == 0:
-        return (
-            f"I found {scraped_count} listings matching your city/budget, but none clearly show "
-            f"up to {req_bedrooms_max} bedrooms.\n"
-            f"Redfin only supports a 5+ bedroom cap filter, so I searched broadly and filtered locally."
         )
 
     return (
@@ -339,6 +349,7 @@ def search_listings(
 
 
 def web_search_property(address: str, city: str, state: str, **_kw) -> str:
+    print(f"[listings.py] web_search_property called: address={address}, city={city}, state={state}")
     if not address or not city or not state:
         return "I need address, city, and state to search this property."
 

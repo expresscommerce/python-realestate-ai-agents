@@ -113,15 +113,12 @@ def _redfin_search_url(
     listing_type: str = "sale",
     price_min: int = 0,
     price_max: int = 0,
-    bedrooms_min: int = 0,
-    bedrooms_max: int = 0,
+    bedrooms: int = 0,
     property_type: str = "",
 ) -> str:
     """Build Redfin URL automatically (prefer path-style over hash URLs)."""
-    if bedrooms_min > 5:
-        bedrooms_min = 5
-    if bedrooms_max > 5:
-        bedrooms_max = 5
+    if bedrooms and bedrooms > 5:
+        bedrooms = 5
     state_slug = state.strip().upper()
     city_slug = _normalize_city_slug(city, state_slug)
     if state_slug == "NY" and city_slug in {"queens", "brooklyn", "bronx", "staten-island", "manhattan"}:
@@ -140,16 +137,15 @@ def _redfin_search_url(
     if base:
         if listing_type == "rent":
             rent_seg = _redfin_rent_path_segment(property_type)
-            if bedrooms_min:
-                rent_seg = f"{bedrooms_min}-bedroom-{rent_seg}"
+            if bedrooms:
+                rent_seg = f"{bedrooms}-bedroom-{rent_seg}"
             base = f"{base}/{rent_seg}"
             return base
 
         filters: list[str] = []
-        if bedrooms_min:
-            filters.append(f"min-beds={bedrooms_min}")
-        if bedrooms_max:
-            filters.append(f"max-beds={bedrooms_max}")
+        if bedrooms:
+            filters.append(f"min-beds={bedrooms}")
+            filters.append(f"max-beds={bedrooms}")
         if price_max:
             filters.append(f"max-price={price_max}")
         if price_min:
@@ -163,10 +159,8 @@ def _redfin_search_url(
 
     parts: list[str] = [f"{city} {state}", "homes"]
     parts.append("for rent" if listing_type == "rent" else "for sale")
-    if bedrooms_min:
-        parts.append(f"{bedrooms_min} bed")
-    if bedrooms_max:
-        parts.append(f"up to {bedrooms_max} bed")
+    if bedrooms:
+        parts.append(f"{bedrooms} bed")
     if price_min and price_max:
         parts.append(f"{price_min} to {price_max}")
     elif price_max:
